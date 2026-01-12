@@ -33,6 +33,21 @@
 5. **多链支持策略**: MVP 阶段仅支持 Mantle 链，Injective 链支持根据技术验证结果决定
 6. **外部服务依赖**: 仅依赖链上 RPC、Bundler、Paymaster 等第三方服务，不落地任何用户数据到自有服务器
 
+## 部署说明
+
+### Vercel 部署
+
+项目已配置为独立部署到 Vercel，**仅包含钱包 UI 部分**：
+
+- ✅ **合约代码独立**: 合约代码位于 `smart-services/` 目录，不在部署范围内
+- ✅ **Vercel 配置**: 已创建 `vercel.json` 和 `.vercelignore` 配置文件
+- ✅ **部署脚本**: 提供了 `scripts/deploy-vercel.sh` 和 `scripts/check-deployment.sh` 脚本
+- ✅ **环境变量**: 支持通过环境变量配置链参数
+
+**部署文档**: 
+- [Vercel部署指南](./Vercel部署指南.md) - 详细的部署步骤
+- [智能合约目录说明](./智能合约目录说明.md) - smart-services 目录说明
+
 ## 文档结构
 
 ### 核心文档

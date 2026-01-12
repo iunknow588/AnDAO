@@ -11,7 +11,7 @@
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint-fix": "eslint src --ext ts,tsx --fix",
     "type-check": "tsc --noEmit",
-    "typechain": "typechain --target ethers-v6 --out-dir src/types/contracts '../kernel-dev/out/**/*.json'",
+    "typechain": "echo 'TypeChain script disabled for Vercel deployment. Contract types are defined locally in src/utils/kernel-types.ts'",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",

@@ -36,7 +36,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@kernel-dev': path.resolve(__dirname, '../kernel-dev/src')
+      // 注意：已移除 @kernel-dev 路径别名，项目使用本地定义的 ABI（kernel-types.ts）
+      // 合约代码已独立到外部目录，Vercel 部署仅包含 UI 部分
     }
   },
   server: {

@@ -23,8 +23,9 @@
     /* Path mapping */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@kernel-dev/*": ["../kernel-dev/src/*"]
+      "@/*": ["src/*"]
+      // 注意：已移除 @kernel-dev 路径映射，项目使用本地定义的 ABI（kernel-types.ts）
+      // 合约代码已独立到外部目录，Vercel 部署仅包含 UI 部分
     },
 
     /* Types */
