@@ -70,7 +70,7 @@ echo "=== 部署到Vercel ==="
 echo "正在部署到Vercel..."
 echo ""
 
-if vercel --prod; then
+if vercel --prod --yes; then
     echo ""
     echo "🎉 部署成功！"
     echo ""
