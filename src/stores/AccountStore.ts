@@ -106,7 +106,16 @@ export class AccountStore {
    */
   setCurrentAccount(account: AccountInfo): void {
     this.currentAccount = account;
-    this.currentChain = account.chainId as SupportedChain;
+    // 根据 chainId 确定链类型
+    // Mantle: 5000, Injective: 888
+    if (account.chainId === 5000 || account.chainId === 5001) {
+      this.currentChain = SupportedChain.MANTLE;
+    } else if (account.chainId === 888) {
+      this.currentChain = SupportedChain.INJECTIVE;
+    } else {
+      // 默认使用 Mantle
+      this.currentChain = DEFAULT_CHAIN;
+    }
   }
 
   /**
@@ -207,7 +216,16 @@ export class AccountStore {
       await accountManager.importAccount(account);
       this.accounts = await accountManager.getAllAccounts();
       this.currentAccount = account;
-      this.currentChain = account.chainId as SupportedChain;
+      // 根据 chainId 确定链类型
+      // Mantle: 5000, Injective: 888
+      if (account.chainId === 5000 || account.chainId === 5001) {
+        this.currentChain = SupportedChain.MANTLE;
+      } else if (account.chainId === 888) {
+        this.currentChain = SupportedChain.INJECTIVE;
+      } else {
+        // 默认使用 Mantle
+        this.currentChain = DEFAULT_CHAIN;
+      }
     } catch (error) {
       this.error = error instanceof Error ? error.message : 'Failed to add account';
       throw error;
