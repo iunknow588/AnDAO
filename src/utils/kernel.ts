@@ -1,0 +1,217 @@
+/**
+ * Kernel 合约工具函数
+ * 
+ * 提供与 kernel-dev 合约交互的工具函数
+ * 使用 viem 与合约交互
+ * 
+ * 注意：当前使用类型导入辅助模块，优先从 kernel-dev 导入，失败时使用降级方案
+ * 
+ * @module utils/kernel
+ */
+
+import type { Address, Hex } from 'viem';
+import { createPublicClient, createWalletClient, http, encodeFunctionData, decodeFunctionResult } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { KERNEL_FACTORY_ABI, KERNEL_ABI, ENTRYPOINT_ABI } from './kernel-types';
+
+// 重新导出 ABI（保持向后兼容）
+export { KERNEL_FACTORY_ABI, KERNEL_ABI, ENTRYPOINT_ABI };
+
+/**
+ * 预测账户地址
+ * 
+ * 使用 Kernel Factory 的 getAddress 方法预测账户地址
+ * 这是确定性地址，基于 initData 和 salt 计算得出
+ * 
+ * @param factoryAddress Kernel Factory 合约地址
+ * @param initData 账户初始化数据（Kernel.initialize 的编码数据）
+ * @param salt 盐值（用于确定性地址生成）
+ * @param rpcUrl RPC 节点 URL
+ * @returns 预测的账户地址
+ * 
+ * @example
+ * ```typescript
+ * const address = await predictAccountAddress(
+ *   '0x...', // Factory 地址
+ *   '0x...', // initData
+ *   '0x...', // salt
+ *   'https://rpc.mantle.xyz'
+ * );
+ * ```
+ */
+export async function predictAccountAddress(
+  factoryAddress: Address,
+  initData: Hex,
+  salt: Hex,
+  rpcUrl: string
+): Promise<Address> {
+  const publicClient = createPublicClient({
+    transport: http(rpcUrl),
+  });
+
+  const result = await publicClient.readContract({
+    address: factoryAddress,
+    abi: KERNEL_FACTORY_ABI,
+    functionName: 'getAddress',
+    args: [initData, salt],
+  });
+
+  return result as Address;
+}
+
+/**
+ * 创建账户
+ * 
+ * 调用 Kernel Factory 的 createAccount 方法实际部署账户合约
+ * 如果提供了 signerPrivateKey，会发送交易部署账户
+ * 如果不提供，仅预测地址（账户可能还未部署）
+ * 
+ * @param factoryAddress Kernel Factory 合约地址
+ * @param initData 账户初始化数据
+ * @param salt 盐值
+ * @param rpcUrl RPC 节点 URL
+ * @param signerPrivateKey 签名者私钥（可选，用于发送部署交易）
+ * @returns 账户地址（已部署或预测的地址）
+ * 
+ * @example
+ * ```typescript
+ * // 仅预测地址
+ * const address = await createAccount(factory, initData, salt, rpcUrl);
+ * 
+ * // 实际部署账户
+ * const address = await createAccount(factory, initData, salt, rpcUrl, privateKey);
+ * ```
+ */
+export async function createAccount(
+  factoryAddress: Address,
+  initData: Hex,
+  salt: Hex,
+  rpcUrl: string,
+  signerPrivateKey?: Hex
+): Promise<Address> {
+  const publicClient = createPublicClient({
+    transport: http(rpcUrl),
+  });
+
+  if (signerPrivateKey) {
+    // 使用签名者发送交易
+    const account = privateKeyToAccount(signerPrivateKey);
+    const walletClient = createWalletClient({
+      account,
+      transport: http(rpcUrl),
+    });
+
+    const hash = await walletClient.writeContract({
+      address: factoryAddress,
+      abi: KERNEL_FACTORY_ABI,
+      functionName: 'createAccount',
+      args: [initData, salt],
+    });
+
+    // 等待交易确认
+    await publicClient.waitForTransactionReceipt({ hash });
+    
+    // 返回创建的账户地址
+    return predictAccountAddress(factoryAddress, initData, salt, rpcUrl);
+  } else {
+    // 仅预测地址，不实际创建
+    return predictAccountAddress(factoryAddress, initData, salt, rpcUrl);
+  }
+}
+
+/**
+ * 构造 execute 调用数据
+ * 
+ * 编码 Kernel.execute(target, value, data) 的调用数据
+ * 用于构造 UserOperation 的 callData
+ * 
+ * @param target 目标合约地址
+ * @param value 转账金额（wei）
+ * @param data 调用数据
+ * @returns 编码后的调用数据
+ */
+export function encodeExecuteCallData(
+  target: Address,
+  value: bigint,
+  data: Hex
+): Hex {
+  return encodeFunctionData({
+    abi: KERNEL_ABI,
+    functionName: 'execute',
+    args: [target, value, data],
+  });
+}
+
+/**
+ * 构造 executeBatch 调用数据
+ * 
+ * 编码 Kernel.executeBatch(targets, values, datas) 的调用数据
+ * 用于批量交易，一次签名执行多个交易
+ * 
+ * @param targets 目标合约地址数组
+ * @param values 转账金额数组（wei）
+ * @param datas 调用数据数组
+ * @returns 编码后的调用数据
+ * 
+ * @example
+ * ```typescript
+ * const callData = encodeExecuteBatchCallData(
+ *   ['0x...', '0x...'], // 两个目标地址
+ *   [0n, 1000000000000000000n], // 第一个不转账，第二个转账 1 ETH
+ *   ['0x...', '0x...'] // 两个调用数据
+ * );
+ * ```
+ */
+export function encodeExecuteBatchCallData(
+  targets: Address[],
+  values: bigint[],
+  datas: Hex[]
+): Hex {
+  return encodeFunctionData({
+    abi: KERNEL_ABI,
+    functionName: 'executeBatch',
+    args: [targets, values, datas],
+  });
+}
+
+/**
+ * 获取账户 nonce
+ * 
+ * 从 EntryPoint 合约获取账户的 nonce
+ * nonce 用于防止重放攻击，每个 UserOperation 需要唯一的 nonce
+ * 
+ * @param entryPointAddress EntryPoint 合约地址
+ * @param accountAddress 账户地址
+ * @param rpcUrl RPC 节点 URL
+ * @param key nonce key（默认为 0，用于支持多个 nonce 序列）
+ * @returns 账户的当前 nonce
+ * 
+ * @example
+ * ```typescript
+ * const nonce = await getAccountNonce(
+ *   '0x0000000071727De22E5E9d8BAf0edAc6f37da032', // EntryPoint 地址
+ *   '0x...', // 账户地址
+ *   'https://rpc.mantle.xyz'
+ * );
+ * ```
+ */
+export async function getAccountNonce(
+  entryPointAddress: Address,
+  accountAddress: Address,
+  rpcUrl: string,
+  key: bigint = BigInt(0)
+): Promise<bigint> {
+  const publicClient = createPublicClient({
+    transport: http(rpcUrl),
+  });
+
+  const nonce = await publicClient.readContract({
+    address: entryPointAddress,
+    abi: ENTRYPOINT_ABI,
+    functionName: 'getNonce',
+    args: [accountAddress, key],
+  });
+
+  return nonce;
+}
+
