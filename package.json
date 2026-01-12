@@ -19,7 +19,7 @@
     "test:coverage": "vitest run --coverage",
     "testnet:verify": "tsx scripts/testnet-verification.ts",
     "pwa:verify": "tsx scripts/pwa-verification.ts",
-    "prepare": "husky install",
+    "prepare": "node -e \"try{require('husky').install()}catch(e){if(process.env.CI!=='true')console.log(e)}\"",
     "security:audit": "npm audit --audit-level=moderate",
     "security:fix": "npm audit fix",
     "security:check": "tsx scripts/security-audit.ts",
