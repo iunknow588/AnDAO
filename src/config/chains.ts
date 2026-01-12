@@ -41,13 +41,13 @@ import { ChainConfig, SupportedChain } from '@/types';
 export const MANTLE_CHAIN: ChainConfig = {
   chainId: 5000, // Mantle 主网 Chain ID（需要确认）
   name: 'Mantle',
-  rpcUrl: process.env.VITE_MANTLE_RPC_URL || 'https://rpc.mantle.xyz',
-  bundlerUrl: process.env.VITE_MANTLE_BUNDLER_URL || '', // 需要配置
-  paymasterAddress: process.env.VITE_MANTLE_PAYMASTER_ADDRESS || '', // 可选
-  kernelFactoryAddress: process.env.VITE_MANTLE_KERNEL_FACTORY_ADDRESS || '', // 需要从 kernel.zerodev.app 获取或部署
-  entryPointAddress: process.env.VITE_MANTLE_ENTRYPOINT_ADDRESS || '', // ERC-4337 EntryPoint 地址
-  multiChainValidatorAddress: process.env.VITE_MANTLE_MULTI_CHAIN_VALIDATOR_ADDRESS || '', // MultiChainValidator 地址
-  recoveryPluginAddress: process.env.VITE_MANTLE_RECOVERY_PLUGIN_ADDRESS || '', // 恢复插件地址（可选，用于社交恢复功能）
+  rpcUrl: import.meta.env.VITE_MANTLE_RPC_URL || 'https://rpc.mantle.xyz',
+  bundlerUrl: import.meta.env.VITE_MANTLE_BUNDLER_URL || '', // 需要配置
+  paymasterAddress: import.meta.env.VITE_MANTLE_PAYMASTER_ADDRESS || '', // 可选
+  kernelFactoryAddress: import.meta.env.VITE_MANTLE_KERNEL_FACTORY_ADDRESS || '', // 需要从 kernel.zerodev.app 获取或部署
+  entryPointAddress: import.meta.env.VITE_MANTLE_ENTRYPOINT_ADDRESS || '', // ERC-4337 EntryPoint 地址
+  multiChainValidatorAddress: import.meta.env.VITE_MANTLE_MULTI_CHAIN_VALIDATOR_ADDRESS || '', // MultiChainValidator 地址
+  recoveryPluginAddress: import.meta.env.VITE_MANTLE_RECOVERY_PLUGIN_ADDRESS || '', // 恢复插件地址（可选，用于社交恢复功能）
   nativeCurrency: {
     name: 'Mantle',
     symbol: 'MNT',
@@ -59,13 +59,13 @@ export const MANTLE_CHAIN: ChainConfig = {
 export const MANTLE_TESTNET_CHAIN: ChainConfig = {
   chainId: 5001, // Mantle 测试网 Chain ID（需要确认）
   name: 'Mantle Testnet',
-  rpcUrl: process.env.VITE_MANTLE_TESTNET_RPC_URL || 'https://rpc.testnet.mantle.xyz',
-  bundlerUrl: process.env.VITE_MANTLE_TESTNET_BUNDLER_URL || '',
-  paymasterAddress: process.env.VITE_MANTLE_TESTNET_PAYMASTER_ADDRESS || '',
-  kernelFactoryAddress: process.env.VITE_MANTLE_TESTNET_KERNEL_FACTORY_ADDRESS || '',
-  entryPointAddress: process.env.VITE_MANTLE_TESTNET_ENTRYPOINT_ADDRESS || '',
-  multiChainValidatorAddress: process.env.VITE_MANTLE_TESTNET_MULTI_CHAIN_VALIDATOR_ADDRESS || '',
-  recoveryPluginAddress: process.env.VITE_MANTLE_TESTNET_RECOVERY_PLUGIN_ADDRESS || '', // 恢复插件地址（可选）
+  rpcUrl: import.meta.env.VITE_MANTLE_TESTNET_RPC_URL || 'https://rpc.testnet.mantle.xyz',
+  bundlerUrl: import.meta.env.VITE_MANTLE_TESTNET_BUNDLER_URL || '',
+  paymasterAddress: import.meta.env.VITE_MANTLE_TESTNET_PAYMASTER_ADDRESS || '',
+  kernelFactoryAddress: import.meta.env.VITE_MANTLE_TESTNET_KERNEL_FACTORY_ADDRESS || '',
+  entryPointAddress: import.meta.env.VITE_MANTLE_TESTNET_ENTRYPOINT_ADDRESS || '',
+  multiChainValidatorAddress: import.meta.env.VITE_MANTLE_TESTNET_MULTI_CHAIN_VALIDATOR_ADDRESS || '',
+  recoveryPluginAddress: import.meta.env.VITE_MANTLE_TESTNET_RECOVERY_PLUGIN_ADDRESS || '', // 恢复插件地址（可选）
   nativeCurrency: {
     name: 'Mantle Testnet',
     symbol: 'MNT',
@@ -87,13 +87,13 @@ export const MANTLE_TESTNET_CHAIN: ChainConfig = {
 export const INJECTIVE_CHAIN: ChainConfig = {
   chainId: 888, // Injective 主网 Chain ID（需要确认）
   name: 'Injective',
-  rpcUrl: process.env.VITE_INJECTIVE_RPC_URL || 'https://tm.injective.network',
-  bundlerUrl: process.env.VITE_INJECTIVE_BUNDLER_URL || '', // 需要验证是否支持
-  paymasterAddress: process.env.VITE_INJECTIVE_PAYMASTER_ADDRESS || '',
-  kernelFactoryAddress: process.env.VITE_INJECTIVE_KERNEL_FACTORY_ADDRESS || '', // 需要验证是否可部署
-  entryPointAddress: process.env.VITE_INJECTIVE_ENTRYPOINT_ADDRESS || '', // 需要验证
-  multiChainValidatorAddress: process.env.VITE_INJECTIVE_MULTI_CHAIN_VALIDATOR_ADDRESS || '',
-  recoveryPluginAddress: process.env.VITE_INJECTIVE_RECOVERY_PLUGIN_ADDRESS || '', // 恢复插件地址（可选）
+  rpcUrl: import.meta.env.VITE_INJECTIVE_RPC_URL || 'https://tm.injective.network',
+  bundlerUrl: import.meta.env.VITE_INJECTIVE_BUNDLER_URL || '', // 需要验证是否支持
+  paymasterAddress: import.meta.env.VITE_INJECTIVE_PAYMASTER_ADDRESS || '',
+  kernelFactoryAddress: import.meta.env.VITE_INJECTIVE_KERNEL_FACTORY_ADDRESS || '', // 需要验证是否可部署
+  entryPointAddress: import.meta.env.VITE_INJECTIVE_ENTRYPOINT_ADDRESS || '', // 需要验证
+  multiChainValidatorAddress: import.meta.env.VITE_INJECTIVE_MULTI_CHAIN_VALIDATOR_ADDRESS || '',
+  recoveryPluginAddress: import.meta.env.VITE_INJECTIVE_RECOVERY_PLUGIN_ADDRESS || '', // 恢复插件地址（可选）
   nativeCurrency: {
     name: 'Injective',
     symbol: 'INJ',

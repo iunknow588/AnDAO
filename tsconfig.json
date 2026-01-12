@@ -29,9 +29,15 @@
     },
 
     /* Types */
-    "types": ["node"]
+    "types": ["node", "vite/client"]
   },
-  "include": ["src"],
+  "include": [
+    "src",
+    // 编译时排除测试目录，避免本地缺失 vitest / testing-library 类型导致构建失败
+    // 生产构建只关注应用代码
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
 

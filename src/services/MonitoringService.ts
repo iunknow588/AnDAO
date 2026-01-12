@@ -84,14 +84,26 @@ class MonitoringService {
 
   /**
    * 动态加载 Sentry（可选依赖）
+   * 
+   * 注意：@sentry/react 是可选的，如果未安装则返回 null
+   * 使用字符串形式的 import() 避免 Vite 在构建时尝试解析
    */
   private async loadSentry(): Promise<any> {
     try {
-      // 如果安装了 @sentry/react，则使用它
-      const Sentry = await import('@sentry/react');
+      // 检查环境变量，如果未启用 Sentry，直接返回 null
+      const enableSentry = import.meta.env.VITE_ENABLE_SENTRY === 'true';
+      if (!enableSentry) {
+        return null;
+      }
+
+      // 使用动态 import，如果模块不存在会抛出错误
+      // 使用字符串拼接避免 Vite 静态分析
+      const sentryModule = '@sentry/react';
+      const Sentry = await import(/* @vite-ignore */ sentryModule);
       return Sentry;
     } catch (error) {
-      console.warn('[Monitoring] @sentry/react 未安装，跳过 Sentry 集成');
+      // 模块不存在或加载失败，这是正常的（Sentry 是可选的）
+      console.debug('[Monitoring] @sentry/react 未安装或加载失败，跳过 Sentry 集成:', error);
       return null;
     }
   }

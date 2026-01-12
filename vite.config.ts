@@ -40,6 +40,10 @@ export default defineConfig({
       // 合约代码已独立到外部目录，Vercel 部署仅包含 UI 部分
     }
   },
+  optimizeDeps: {
+    // 排除可选依赖，避免 Vite 在开发模式下尝试预构建
+    exclude: ['@sentry/react'],
+  },
   server: {
     port: 3000,
     // 注意：本应用为纯客户端应用，无自建后端 API
