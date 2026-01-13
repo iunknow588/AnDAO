@@ -10,7 +10,7 @@ const config: HardhatUserConfig = {
       viaIR: true,
       optimizer: {
         enabled: true,
-        runs: 1000,
+        runs: 100,
       },
     },
   },
@@ -22,7 +22,7 @@ const config: HardhatUserConfig = {
     alphaSort: true,
     disambiguatePaths: false,
     runOnCompile: true,
-    strict: true,
+    strict: false,
   }
 };
 

@@ -29,7 +29,7 @@
 1. **完全独立的架构**: 这是一个完全独立的智能合约钱包，不依赖任何传统钱包（如 Keplr、MetaMask）的核心代码
 2. **无服务端设计**: 纯客户端应用，不提供自建后端 API，所有数据存储在本地（IndexedDB）或链上
 3. **UI 设计参考**: 界面设计和用户体验参考 Keplr 钱包，但代码完全独立实现
-4. **直接使用 kernel-dev**: 不通过 SDK，直接使用 `../kernel-dev` 中的合约接口和类型定义
+4. **合约代码独立**: 合约代码位于 `smart-services/` 目录，使用 Foundry 和 Hardhat 进行开发和部署
 5. **多链支持策略**: MVP 阶段仅支持 Mantle 链，Injective 链支持根据技术验证结果决定
 6. **外部服务依赖**: 仅依赖链上 RPC、Bundler、Paymaster 等第三方服务，不落地任何用户数据到自有服务器
 
@@ -41,12 +41,16 @@
 
 - ✅ **合约代码独立**: 合约代码位于 `smart-services/` 目录，不在部署范围内
 - ✅ **Vercel 配置**: 已创建 `vercel.json` 和 `.vercelignore` 配置文件
-- ✅ **部署脚本**: 提供了 `deploy/deploy-vercel.sh` 和 `deploy/check-deployment.sh` 脚本
+- ✅ **部署脚本**: 
+  - `deploy/upload_to_github.sh` - 上传代码到 GitHub
+  - `deploy/deploy-vercel.sh` - 部署到 Vercel 生产环境
+  - `deploy/check-deployment.sh` - 部署前检查脚本
 - ✅ **环境变量**: 支持通过环境变量配置链参数
 
 **部署文档**: 
 - [Vercel部署指南](../deploy/Vercel部署指南.md) - 详细的部署步骤
-- [智能合约目录说明](./智能合约目录说明.md) - smart-services 目录说明
+- [智能合约部署到Mantle测试网操作步骤](../deploy/智能合约部署到Mantle测试网操作步骤.md) - 合约部署指南
+- [合约部署总结](../smart-services/DEPLOYMENT_SUMMARY.md) - 已部署合约地址和状态
 
 ## 文档结构
 
@@ -59,77 +63,51 @@
    - 与传统钱包的对比
    - 部署和运行环境
 
-2. **[架构分析与修正报告](./架构分析与修正报告.md)** ⭐ **新增**
-   - 架构审查发现的问题
-   - 修正方案和建议
-   - 风险评估和缓解措施
-   - **建议首先阅读此文档**
-
-3. **[账户抽象架构说明](./账户抽象架构说明.md)**
-   - 账户抽象概述
-   - Kernel 智能合约账户
-   - ERC-4337 标准
-   - 系统架构
-   - 核心组件
-   - 工作流程
-
-4. **[架构设计](./架构设计.md)**
-   - 整体架构设计（已修正）
-   - 分层架构说明
+2. **[系统详细设计](./系统详细设计.md)**
+   - 系统架构详细设计
    - 核心模块设计
-   - 状态管理架构
-   - 路由和导航设计
-
-5. **[开发检查清单](../check/check_list.md)**
-   - 完整的开发任务清单
-   - 分阶段开发计划
-   - 里程碑检查点
-   - **包含技术验证阶段（阶段 0）**
+   - 数据流和状态管理
+   - 接口设计规范
 
 ### 技术文档
 
-6. **[API 接口文档](./API接口文档.md)**
+3. **[API 接口文档](./API接口文档.md)**
    - 钱包核心接口
    - 账户抽象相关接口
    - 多链操作接口
    - DApp 集成接口
    - 错误处理规范
 
-7. **[开发指南](./开发指南.md)**
-   - 开发环境搭建
-   - 项目结构说明
-   - 开发工作流
-   - 代码规范
-   - kernel-dev 集成步骤
+### 部署文档
 
-8. **[部署指南](../deploy/部署指南.md)**
+4. **[部署指南](../deploy/部署指南.md)**
    - 构建配置
-   - 服务器配置
-   - CDN 配置
+   - Vercel 部署步骤
+   - 环境变量配置
    - 性能优化
    - 安全配置
+
+5. **[Vercel部署指南](../deploy/Vercel部署指南.md)**
+   - Vercel 详细部署步骤
+   - 环境变量配置说明
+   - 域名配置指南
 
 ## 快速导航
 
 ### 想了解项目定位和架构？
-→ 阅读 [架构分析与修正报告](./架构分析与修正报告.md) ⭐ **推荐首先阅读**
 → 阅读 [系统概述](./系统概述.md)
-
-### 想了解账户抽象技术？
-→ 阅读 [账户抽象架构说明](./账户抽象架构说明.md)
-
-### 准备开始开发？
-→ 阅读 [开发检查清单](../check/check_list.md) - 从阶段 0（技术验证）开始
-→ 阅读 [开发指南](./开发指南.md)
-
-### 需要了解系统架构？
-→ 阅读 [架构设计](./架构设计.md)
+→ 阅读 [系统详细设计](./系统详细设计.md)
 
 ### 需要集成钱包功能？
 → 阅读 [API 接口文档](./API接口文档.md)
 
 ### 需要部署到生产环境？
 → 阅读 [部署指南](../deploy/部署指南.md)
+→ 阅读 [Vercel部署指南](../deploy/Vercel部署指南.md)
+
+### 需要部署智能合约？
+→ 阅读 [智能合约部署到Mantle测试网操作步骤](../deploy/智能合约部署到Mantle测试网操作步骤.md)
+→ 查看 [合约部署总结](../smart-services/DEPLOYMENT_SUMMARY.md)
 
 ## 与传统钱包的对比
 
@@ -147,24 +125,37 @@
 ## 技术栈
 
 ### 前端技术
+- **项目名称**: @andaowallet/h5
+- **项目版本**: 0.1.0
 - **前端框架**: React 18.2.0
-- **状态管理**: MobX 6.10.0 或 Zustand
-- **构建工具**: Vite（推荐）或 Webpack 5
-- **路由**: React Router v6+
-- **PWA 支持**: vite-plugin-pwa
+- **状态管理**: MobX 6.10.0
+- **样式方案**: Styled Components 6.1.1
+- **构建工具**: Vite 5.0.5
+- **路由**: React Router v6.20.0
+- **PWA 支持**: vite-plugin-pwa 0.17.4
 
 ### 账户抽象技术
 - **智能合约框架**: Kernel v3（ERC-4337 兼容）
-- **源码集成**: 直接使用 `../kernel-dev` 目录中的合约源码
-- **类型绑定**: TypeChain 从合约生成 TypeScript 类型
-- **链交互**: viem 或 ethers.js
+- **合约源码**: 位于 `smart-services/contracts/src` 目录
+- **类型定义**: 本地定义在 `src/utils/kernel-types.ts`（不依赖 TypeChain）
+- **链交互**: viem 2.0.0 和 ethers.js 6.9.0
 - **Bundler**: 支持 ERC-4337 的 Bundler 网络（多服务商故障转移）
-- **Paymaster**: Gas 代付服务（可选）
+- **Paymaster**: Gas 代付服务（可选，已实现 PaymasterService）
 
 ### 区块链支持
-- **优先链**: Mantle Network（EVM 兼容，优先支持）
-- **次要链**: Injective Network（需要验证 ERC-4337 支持情况）
+- **优先链**: Mantle Network（EVM 兼容，已部署到测试网）
+- **次要链**: Injective Network（待技术验证）
 - **支持策略**: MVP 阶段仅支持 Mantle，后续根据 Injective 支持情况决定
+
+### 已部署的合约（Mantle Sepolia 测试网）
+
+- **Kernel**: `0x7318DdE98c8C70b4652b0C697d8Ee8E2e2d0655F`
+  - [查看合约](https://sepolia.mantlescan.xyz/address/0x7318DdE98c8C70b4652b0C697d8Ee8E2e2d0655F)
+- **KernelFactory**: `0x5401b77d3b9BB2ce8757951d03aB6d9aEb22161d`
+  - [查看合约](https://sepolia.mantlescan.xyz/address/0x5401b77d3b9BB2ce8757951d03aB6d9aEb22161d)
+- **EntryPoint**: `0x0000000071727De22E5E9d8BAf0edAc6f37da032`（ERC-4337 标准地址）
+
+详细部署信息请查看：[合约部署总结](../smart-services/DEPLOYMENT_SUMMARY.md)
 
 ### 安全与存储
 - **加密存储**: Web Crypto API（AES-GCM）
@@ -202,23 +193,29 @@
 2. ⚠️ Paymaster 集成（Gas 代付）
 3. ⚠️ 社交恢复功能完整实现（需要恢复插件）
 4. ⚠️ 硬件钱包支持（WebUSB/WebHID）
-5. ⚠️ kernel-dev 类型导入（需要先编译 kernel-dev）
+5. ⚠️ ECDSAValidator 部署（验证器合约待部署）
 
 ## 相关文档
 
-- **架构审查报告**: [架构分析与修正报告](./架构分析与修正报告.md) ⭐
-- **开发计划**: [开发检查清单](../check/check_list.md)
-- **扩展版本文档**: 参见 `../dosc_cn/` 目录（注意：架构完全独立，不依赖扩展版本）
+- **系统文档**: [系统概述](./系统概述.md) | [系统详细设计](./系统详细设计.md)
+- **API 文档**: [API接口文档](./API接口文档.md)
+- **部署文档**: [部署指南](../deploy/部署指南.md) | [Vercel部署指南](../deploy/Vercel部署指南.md)
+- **合约部署**: [合约部署总结](../smart-services/DEPLOYMENT_SUMMARY.md) | [部署操作步骤](../deploy/智能合约部署到Mantle测试网操作步骤.md)
 
 ## 更新日志
 
-- **v1.1.0** (2024): 架构审查和修正，明确项目定位，添加技术验证阶段
-- **v1.0.0** (2024): 初始文档版本
+- **v0.1.0** (2025-01-13): 
+  - 完成核心合约部署到 Mantle Sepolia 测试网
+  - Kernel 和 KernelFactory 已成功部署
+  - 更新文档以反映实际代码状态
+  - 优化合约大小（从 27KB 降至 24KB 以下）
 
 ---
 
 **重要提示**: 
-1. 本项目是**完全独立的智能合约钱包**，不依赖 Keplr 扩展版本的核心代码
-2. UI 层面仅参考 Keplr 的设计风格，代码完全独立实现
-3. 直接使用 kernel-dev 源码，不通过 SDK 封装
-4. MVP 阶段优先支持 Mantle 链，确保核心功能稳定
+1. 本项目是**完全独立的智能合约钱包**，不依赖任何传统钱包的核心代码
+2. UI 层面参考 Keplr 的设计风格，代码完全独立实现
+3. 合约代码位于 `smart-services/` 目录，使用 Foundry 和 Hardhat 进行开发和部署
+4. MVP 阶段优先支持 Mantle 链，核心合约已部署到 Mantle Sepolia 测试网
+5. 项目使用本地定义的合约类型（`src/utils/kernel-types.ts`），不依赖外部 SDK
+6. 所有部署脚本位于 `deploy/` 目录，合约部署脚本位于 `smart-services/scripts/` 目录

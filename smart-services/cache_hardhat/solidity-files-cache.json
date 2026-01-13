@@ -1,0 +1,1648 @@
+{
+  "_format": "hh-sol-cache-2",
+  "files": {
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/Kernel.sol": {
+      "lastModificationDate": 1768314387895,
+      "contentHash": "ce9665b202317c459eb957c9ad301be3",
+      "sourceName": "contracts/src/Kernel.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./interfaces/PackedUserOperation.sol",
+        "./interfaces/IAccount.sol",
+        "./interfaces/IEntryPoint.sol",
+        "./interfaces/IAccountExecute.sol",
+        "./interfaces/IERC7579Account.sol",
+        "./utils/ModuleLib.sol",
+        "./core/ValidationManager.sol",
+        "./interfaces/IERC7579Modules.sol",
+        "solady/utils/EIP712.sol",
+        "./utils/ExecLib.sol",
+        "./types/Types.sol",
+        "./types/Constants.sol",
+        "./types/Structs.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "Kernel"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/PackedUserOperation.sol": {
+      "lastModificationDate": 1768220486351,
+      "contentHash": "04167e34d729df26a942e3bed554221a",
+      "sourceName": "contracts/src/interfaces/PackedUserOperation.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        ">=0.7.5"
+      ],
+      "artifacts": []
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/IAccount.sol": {
+      "lastModificationDate": 1768220486347,
+      "contentHash": "24fef405556045c4a27c9747c78b189c",
+      "sourceName": "contracts/src/interfaces/IAccount.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./PackedUserOperation.sol",
+        "../types/Types.sol"
+      ],
+      "versionPragmas": [
+        ">=0.7.5"
+      ],
+      "artifacts": [
+        "IAccount"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/IAccountExecute.sol": {
+      "lastModificationDate": 1768220486347,
+      "contentHash": "7dbe0975e7c5a57bcf2bf3952763d2e4",
+      "sourceName": "contracts/src/interfaces/IAccountExecute.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./PackedUserOperation.sol"
+      ],
+      "versionPragmas": [
+        ">=0.7.5"
+      ],
+      "artifacts": [
+        "IAccountExecute"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/IEntryPoint.sol": {
+      "lastModificationDate": 1768220486347,
+      "contentHash": "d99772cf700f874d8447b13ba4029b5b",
+      "sourceName": "contracts/src/interfaces/IEntryPoint.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./PackedUserOperation.sol",
+        "./IStakeManager.sol",
+        "./IAggregator.sol",
+        "./INonceManager.sol"
+      ],
+      "versionPragmas": [
+        ">=0.7.5"
+      ],
+      "artifacts": [
+        "IEntryPoint"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/utils/ModuleLib.sol": {
+      "lastModificationDate": 1768220486359,
+      "contentHash": "0f37585e770b3c4af758592b41bfe674",
+      "sourceName": "contracts/src/utils/ModuleLib.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "ExcessivelySafeCall/ExcessivelySafeCall.sol",
+        "../interfaces/IERC7579Modules.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "ModuleLib"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/IERC7579Account.sol": {
+      "lastModificationDate": 1768220486347,
+      "contentHash": "c620d62e109822f039bb7899fc30fb83",
+      "sourceName": "contracts/src/interfaces/IERC7579Account.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../utils/ExecLib.sol",
+        "./PackedUserOperation.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.21"
+      ],
+      "artifacts": [
+        "IERC7579Account"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/IERC7579Modules.sol": {
+      "lastModificationDate": 1768220486347,
+      "contentHash": "407689061868162708009faec724e574",
+      "sourceName": "contracts/src/interfaces/IERC7579Modules.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./PackedUserOperation.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.21"
+      ],
+      "artifacts": [
+        "IExecutor",
+        "IFallback",
+        "IHook",
+        "IModule",
+        "IPolicy",
+        "ISigner",
+        "IValidator"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/core/ValidationManager.sol": {
+      "lastModificationDate": 1768220486343,
+      "contentHash": "cdbcfcab7f3934a7d552bae63116790f",
+      "sourceName": "contracts/src/core/ValidationManager.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../interfaces/IERC7579Modules.sol",
+        "../interfaces/IERC7579Account.sol",
+        "../interfaces/PackedUserOperation.sol",
+        "./SelectorManager.sol",
+        "./HookManager.sol",
+        "./ExecutorManager.sol",
+        "../interfaces/IAccount.sol",
+        "../interfaces/IAccountExecute.sol",
+        "solady/utils/EIP712.sol",
+        "../utils/ModuleLib.sol",
+        "../utils/ValidationTypeLib.sol",
+        "../types/Constants.sol",
+        "../utils/Utils.sol",
+        "../types/Types.sol",
+        "../utils/KernelValidationResult.sol",
+        "../types/Structs.sol",
+        "../types/Constants.sol",
+        "solady/utils/ECDSA.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "ValidationManager"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/utils/ExecLib.sol": {
+      "lastModificationDate": 1768220486359,
+      "contentHash": "9cfb71563e5c23f94ccfe2d9de89842d",
+      "sourceName": "contracts/src/utils/ExecLib.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../types/Types.sol",
+        "solady/accounts/LibERC7579.sol",
+        "../types/Constants.sol",
+        "../types/Structs.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.23"
+      ],
+      "artifacts": [
+        "ExecLib"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/types/Constants.sol": {
+      "lastModificationDate": 1768220486355,
+      "contentHash": "fcd99648cdc45da5d1e92b0b6d66b609",
+      "sourceName": "contracts/src/types/Constants.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./Types.sol",
+        "./Types.sol",
+        "./Types.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": []
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/types/Types.sol": {
+      "lastModificationDate": 1768220486359,
+      "contentHash": "d0575b5ec147fd1f228dadb924ce722c",
+      "sourceName": "contracts/src/types/Types.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.23"
+      ],
+      "artifacts": []
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/types/Structs.sol": {
+      "lastModificationDate": 1768220486359,
+      "contentHash": "36378419f459338a1e1b4fd4fb176d62",
+      "sourceName": "contracts/src/types/Structs.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./Types.sol",
+        "../interfaces/IERC7579Modules.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.23"
+      ],
+      "artifacts": []
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/lib/solady/src/utils/EIP712.sol": {
+      "lastModificationDate": 1768312372959,
+      "contentHash": "bfd96d028d217c59b89722adb48f6e97",
+      "sourceName": "solady/utils/EIP712.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.4"
+      ],
+      "artifacts": [
+        "EIP712"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/IAggregator.sol": {
+      "lastModificationDate": 1768220486347,
+      "contentHash": "85c4119cc4e0e93e8e6f63903a49c661",
+      "sourceName": "contracts/src/interfaces/IAggregator.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./PackedUserOperation.sol"
+      ],
+      "versionPragmas": [
+        ">=0.7.5"
+      ],
+      "artifacts": [
+        "IAggregator"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/IStakeManager.sol": {
+      "lastModificationDate": 1768220486351,
+      "contentHash": "b63484539ed69fef9a1d95534e712909",
+      "sourceName": "contracts/src/interfaces/IStakeManager.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        ">=0.7.5"
+      ],
+      "artifacts": [
+        "IStakeManager"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/INonceManager.sol": {
+      "lastModificationDate": 1768220486351,
+      "contentHash": "520b06875e51f5f7a344be2cc4e0c6ea",
+      "sourceName": "contracts/src/interfaces/INonceManager.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        ">=0.7.5"
+      ],
+      "artifacts": [
+        "INonceManager"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/lib/ExcessivelySafeCall/src/ExcessivelySafeCall.sol": {
+      "lastModificationDate": 1768312043943,
+      "contentHash": "41dab284b8e20b27197c9f46e2dc0835",
+      "sourceName": "ExcessivelySafeCall/ExcessivelySafeCall.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        ">=0.7.6"
+      ],
+      "artifacts": [
+        "ExcessivelySafeCall"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/lib/solady/src/accounts/LibERC7579.sol": {
+      "lastModificationDate": 1768312372951,
+      "contentHash": "5ce5db38a82008468a9d57c88d339600",
+      "sourceName": "solady/accounts/LibERC7579.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.4"
+      ],
+      "artifacts": [
+        "LibERC7579"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/core/HookManager.sol": {
+      "lastModificationDate": 1768220486343,
+      "contentHash": "bf62629cb9f8fb9cec1a468d223b99d9",
+      "sourceName": "contracts/src/core/HookManager.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../interfaces/IERC7579Modules.sol",
+        "../utils/ModuleLib.sol",
+        "../interfaces/IERC7579Account.sol",
+        "../types/Constants.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "HookManager"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/core/SelectorManager.sol": {
+      "lastModificationDate": 1768220486343,
+      "contentHash": "bc054bee71b4ed9bd5a2697b2b0a8bad",
+      "sourceName": "contracts/src/core/SelectorManager.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../interfaces/IERC7579Modules.sol",
+        "../interfaces/IERC7579Account.sol",
+        "../types/Types.sol",
+        "../types/Constants.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "SelectorManager"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/core/ExecutorManager.sol": {
+      "lastModificationDate": 1768220486339,
+      "contentHash": "f901e7575a9617523a6dcba8a315ed83",
+      "sourceName": "contracts/src/core/ExecutorManager.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../interfaces/IERC7579Modules.sol",
+        "../interfaces/IERC7579Account.sol",
+        "../types/Constants.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "ExecutorManager"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/utils/ValidationTypeLib.sol": {
+      "lastModificationDate": 1768220486363,
+      "contentHash": "f203ca7d66f7b43ae246f4c48a9d9ca8",
+      "sourceName": "contracts/src/utils/ValidationTypeLib.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../interfaces/IERC7579Modules.sol",
+        "../types/Types.sol",
+        "../types/Constants.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "ValidatorLib"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/utils/Utils.sol": {
+      "lastModificationDate": 1768220486363,
+      "contentHash": "a5f09fac3896b0c33104fc47217b9cc4",
+      "sourceName": "contracts/src/utils/Utils.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../interfaces/PackedUserOperation.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": []
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/utils/KernelValidationResult.sol": {
+      "lastModificationDate": 1768220486359,
+      "contentHash": "61067728c86ed5fd84bcc1b746adedcd",
+      "sourceName": "contracts/src/utils/KernelValidationResult.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../types/Constants.sol",
+        "../types/Types.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": []
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/lib/solady/src/utils/ECDSA.sol": {
+      "lastModificationDate": 1768312372959,
+      "contentHash": "99daac68854c7ae43c094b9f8c66e1e8",
+      "sourceName": "solady/utils/ECDSA.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.4"
+      ],
+      "artifacts": [
+        "ECDSA"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/validator/WeightedECDSAValidator.sol": {
+      "lastModificationDate": 1768220486363,
+      "contentHash": "01a1ba4608432c2857ceb41080550ba6",
+      "sourceName": "contracts/src/validator/WeightedECDSAValidator.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../types/Types.sol",
+        "solady/utils/ECDSA.sol",
+        "solady/utils/EIP712.sol",
+        "../interfaces/PackedUserOperation.sol",
+        "../interfaces/IERC7579Modules.sol",
+        "../types/Constants.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "WeightedECDSAValidator"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/validator/MultiChainValidator.sol": {
+      "lastModificationDate": 1768220486363,
+      "contentHash": "9a78c4d560db1c137ec0e94f9eba5e66",
+      "sourceName": "contracts/src/validator/MultiChainValidator.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "solady/utils/ECDSA.sol",
+        "solady/utils/MerkleProofLib.sol",
+        "../interfaces/IERC7579Modules.sol",
+        "../interfaces/PackedUserOperation.sol",
+        "../types/Constants.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "MultiChainValidator"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/lib/solady/src/utils/MerkleProofLib.sol": {
+      "lastModificationDate": 1768312372967,
+      "contentHash": "61527de39b2470efd9798f8a41315f2c",
+      "sourceName": "solady/utils/MerkleProofLib.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.4"
+      ],
+      "artifacts": [
+        "MerkleProofLib"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/signer/MultiChainSigner.sol": {
+      "lastModificationDate": 1768220486355,
+      "contentHash": "67eda3b74bf0834be9eba1d16f34cffa",
+      "sourceName": "contracts/src/signer/MultiChainSigner.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "solady/utils/ECDSA.sol",
+        "solady/utils/MerkleProofLib.sol",
+        "../interfaces/IERC7579Modules.sol",
+        "../sdk/moduleBase/SignerBase.sol",
+        "../interfaces/PackedUserOperation.sol",
+        "../types/Constants.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "MultiChainSigner"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/sdk/moduleBase/SignerBase.sol": {
+      "lastModificationDate": 1768220486355,
+      "contentHash": "ec352978a9f2e4fc96476e264eea3100",
+      "sourceName": "contracts/src/sdk/moduleBase/SignerBase.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../../interfaces/IERC7579Modules.sol",
+        "../../interfaces/PackedUserOperation.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "SignerBase"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/validator/EmitIdentifierValidator.sol": {
+      "lastModificationDate": 1768220486363,
+      "contentHash": "7f90872ee57c4705fb9be26d03f3aa47",
+      "sourceName": "contracts/src/validator/EmitIdentifierValidator.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../interfaces/IERC7579Modules.sol",
+        "../interfaces/PackedUserOperation.sol",
+        "../types/Constants.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "EmitIdentifierValidator"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/validator/ECDSAValidator.sol": {
+      "lastModificationDate": 1768220486363,
+      "contentHash": "0b0b09c9108598d9368c8a3b7f8b641b",
+      "sourceName": "contracts/src/validator/ECDSAValidator.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "solady/utils/ECDSA.sol",
+        "../interfaces/IERC7579Modules.sol",
+        "../interfaces/PackedUserOperation.sol",
+        "../types/Constants.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "ECDSAValidator"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/sdk/moduleBase/PolicyBase.sol": {
+      "lastModificationDate": 1768220486355,
+      "contentHash": "3bb183bfb77809ec9477fb40cc65dc3d",
+      "sourceName": "contracts/src/sdk/moduleBase/PolicyBase.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../../interfaces/IERC7579Modules.sol",
+        "../../interfaces/PackedUserOperation.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "PolicyBase"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/IPaymaster.sol": {
+      "lastModificationDate": 1768220486351,
+      "contentHash": "b364bc2ce918c95ad094c0dd5b244d43",
+      "sourceName": "contracts/src/interfaces/IPaymaster.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./PackedUserOperation.sol"
+      ],
+      "versionPragmas": [
+        ">=0.7.5"
+      ],
+      "artifacts": [
+        "IPaymaster"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/interfaces/IEntryPointSimulations.sol": {
+      "lastModificationDate": 1768220486347,
+      "contentHash": "b22a64158e6c1f9282cf2b5fbe3f39dc",
+      "sourceName": "contracts/src/interfaces/IEntryPointSimulations.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./PackedUserOperation.sol",
+        "./IEntryPoint.sol"
+      ],
+      "versionPragmas": [
+        ">=0.7.5"
+      ],
+      "artifacts": [
+        "IEntryPointSimulations"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/factory/FactoryStaker.sol": {
+      "lastModificationDate": 1768220486343,
+      "contentHash": "0df75230a8d24b5573a8e2668be6edef",
+      "sourceName": "contracts/src/factory/FactoryStaker.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./KernelFactory.sol",
+        "../interfaces/IEntryPoint.sol",
+        "solady/auth/Ownable.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "FactoryStaker"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/factory/KernelFactory.sol": {
+      "lastModificationDate": 1768313792187,
+      "contentHash": "407e466d4f8b8fe24cfceb26db07125f",
+      "sourceName": "contracts/src/factory/KernelFactory.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "solady/utils/LibClone.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "KernelFactory"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/lib/solady/src/auth/Ownable.sol": {
+      "lastModificationDate": 1768312372955,
+      "contentHash": "c4dc3df5e9b88f1d361e92da30715f29",
+      "sourceName": "solady/auth/Ownable.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.4"
+      ],
+      "artifacts": [
+        "Ownable"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/lib/solady/src/utils/LibClone.sol": {
+      "lastModificationDate": 1768312372963,
+      "contentHash": "e98b1544c9dbccda107e1428d3ec23fd",
+      "sourceName": "solady/utils/LibClone.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.4"
+      ],
+      "artifacts": [
+        "LibClone"
+      ]
+    },
+    "/home/lc/luckee_dao/AnDaoWallet/h5/smart-services/contracts/src/sdk/ModuleStorageLib.sol": {
+      "lastModificationDate": 1768220486351,
+      "contentHash": "308ba18fa08d633d2a5236b36a62f8c2",
+      "sourceName": "contracts/src/sdk/ModuleStorageLib.sol",
+      "solcConfig": {
+        "version": "0.8.25",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 100
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": []
+    }
+  }
+}
