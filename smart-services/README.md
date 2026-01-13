@@ -11,12 +11,16 @@ smart-services/
 ├── contracts/          # 智能合约源码
 │   └── src/           # Kernel 合约源码（从 kernel-dev 复制）
 ├── scripts/           # 部署和测试脚本
+│   ├── Deploy.s.sol   # 主部署脚本
+│   ├── DeployKernel.s.sol  # Kernel 部署脚本
+│   └── DeployECDSA.s.sol   # ECDSA 验证器部署脚本
 ├── artifacts/         # 编译产物（可选）
 ├── types/             # TypeScript 类型定义（可选）
 ├── package.json       # 合约项目依赖
 ├── hardhat.config.ts  # Hardhat 配置
 ├── foundry.toml       # Foundry 配置
-└── remappings.txt     # Foundry 重映射配置
+├── remappings.txt     # Foundry 重映射配置
+└── DEPLOY.md          # 部署指南文档
 ```
 
 ## 重要说明
@@ -57,9 +61,14 @@ npx typechain --target ethers-v6 --out-dir types './artifacts/**/*.json'
 
 #### 3. 部署合约
 
+详细部署说明请参考 [DEPLOY.md](./DEPLOY.md)
+
 ```bash
-# 使用 Hardhat 部署
-npx hardhat run scripts/deploy.ts --network mantle
+# 使用 Foundry 部署（推荐）
+forge script scripts/Deploy.s.sol:Deploy --rpc-url mantle_sepolia --broadcast -vvvv
+
+# 或使用 Hardhat 部署
+npx hardhat run scripts/deploy.ts --network mantle_sepolia
 ```
 
 ## 与前端项目的集成
@@ -82,9 +91,13 @@ npx hardhat run scripts/deploy.ts --network mantle
 3. 重新编译和生成类型
 4. 更新前端项目中的 ABI（`src/utils/kernel-types.ts`）
 
+## 部署文档
+
+- [部署指南](./DEPLOY.md) - 详细的智能合约部署说明
+
 ## 相关文档
 
-- [Vercel部署指南](../docs/Vercel部署指南.md)
+- [Vercel部署指南](../deploy/Vercel部署指南.md)
 - [系统概述](../docs/系统概述.md)
 - [开发指南](../docs/开发指南.md)
 

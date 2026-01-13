@@ -1,25 +1,20 @@
-# H5 项目 GitHub 上传脚本
+# H5 项目脚本说明
 
 ## 📁 脚本说明
 
-### 上传脚本
-- **文件**: `upload_to_github.sh`
-- **功能**: 自动上传 H5 项目到 AnDAO GitHub 仓库
+### 本地开发脚本
+- **文件**: `start-local-dev.sh` - 启动本地开发服务器
+- **文件**: `test-local-dev.sh` - 测试本地开发服务器
+
+### 验证脚本
+- **文件**: `pwa-verification.ts` - PWA 验证脚本
+- **文件**: `security-audit.ts` - 安全审计脚本
+- **文件**: `testnet-verification.ts` - 测试网验证脚本
+
+### GitHub 上传脚本
+- **文件**: `../deploy/upload_to_github.sh` - 自动上传 H5 项目到 AnDAO GitHub 仓库
 - **远程仓库**: `git@github.com:iunknow588/AnDAO.git`
-
-## 🚀 快速使用
-
-```bash
-# 在 h5 项目目录运行
-cd /home/lc/luckee_dao/AnDaoWallet/h5
-./scripts/upload_to_github.sh
-```
-
-或使用自定义提交信息：
-
-```bash
-./scripts/upload_to_github.sh "feat: 你的提交信息"
-```
+- **使用方法**: `./deploy/upload_to_github.sh [commit-message]`
 
 ## 📋 功能说明
 

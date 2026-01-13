@@ -39,7 +39,7 @@ import { ChainConfig, SupportedChain } from '@/types';
  * - 测试网和主网的配置需要分别设置
  */
 export const MANTLE_CHAIN: ChainConfig = {
-  chainId: 5000, // Mantle 主网 Chain ID（需要确认）
+  chainId: 5000, // Mantle 主网 Chain ID
   name: 'Mantle',
   rpcUrl: import.meta.env.VITE_MANTLE_RPC_URL || 'https://rpc.mantle.xyz',
   bundlerUrl: import.meta.env.VITE_MANTLE_BUNDLER_URL || '', // 需要配置
@@ -55,11 +55,11 @@ export const MANTLE_CHAIN: ChainConfig = {
   },
 };
 
-// Mantle 测试网配置
+// Mantle 测试网配置（Sepolia）
 export const MANTLE_TESTNET_CHAIN: ChainConfig = {
-  chainId: 5001, // Mantle 测试网 Chain ID（需要确认）
-  name: 'Mantle Testnet',
-  rpcUrl: import.meta.env.VITE_MANTLE_TESTNET_RPC_URL || 'https://rpc.testnet.mantle.xyz',
+  chainId: 5003, // Mantle Sepolia 测试网 Chain ID
+  name: 'Mantle Sepolia Testnet',
+  rpcUrl: import.meta.env.VITE_MANTLE_TESTNET_RPC_URL || 'https://rpc.sepolia.mantle.xyz',
   bundlerUrl: import.meta.env.VITE_MANTLE_TESTNET_BUNDLER_URL || '',
   paymasterAddress: import.meta.env.VITE_MANTLE_TESTNET_PAYMASTER_ADDRESS || '',
   kernelFactoryAddress: import.meta.env.VITE_MANTLE_TESTNET_KERNEL_FACTORY_ADDRESS || '',

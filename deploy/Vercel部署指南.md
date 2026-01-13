@@ -26,7 +26,7 @@ AnDaoWallet/
     │   ├── contracts/   # 合约源码（从 kernel-dev 复制）
     │   ├── scripts/     # 部署脚本
     │   └── ...
-    ├── scripts/         # 部署脚本
+    ├── deploy/          # 部署脚本
     │   ├── deploy-vercel.sh
     │   └── check-deployment.sh
     ├── dist/            # 构建输出（Vercel 自动生成）
@@ -131,13 +131,13 @@ VITE_SENTRY_DSN=...
 
 4. **运行部署前检查（可选）**
    ```bash
-   ./scripts/check-deployment.sh
+   ./deploy/check-deployment.sh
    ```
 
 5. **部署**
    ```bash
    # 使用部署脚本（推荐）
-   ./scripts/deploy-vercel.sh
+   ./deploy/deploy-vercel.sh
    
    # 或直接使用 Vercel CLI
    vercel --prod

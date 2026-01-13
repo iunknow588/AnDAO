@@ -151,7 +151,7 @@ export const CreateAccountPage = observer(() => {
       <Card>
         <Title>创建智能合约账户</Title>
         <p style={{ color: '#666', marginBottom: '24px' }}>
-          输入您的签名者地址（EOA 地址）来创建智能合约账户
+          输入外部Gas费用代付账户地址（EOA地址）来创建智能合约账户
         </p>
 
         <Input

@@ -2,7 +2,7 @@
 
 # AnDaoWallet H5 项目上传到 GitHub 脚本
 # 目标仓库: git@github.com:iunknow588/AnDAO.git
-# 使用方法: ./scripts/upload_to_github.sh [commit-message]
+# 使用方法: ./deploy/upload_to_github.sh [commit-message]
 
 set -e  # 遇到错误时退出
 

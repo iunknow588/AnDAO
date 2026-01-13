@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # AnDaoWallet H5 项目上传到 AnDAO GitHub 仓库脚本
-# 使用方法: ./scripts/upload_to_andao_github.sh [commit-message]
+# 使用方法: ./deploy/upload_to_andao_github.sh [commit-message]
 # 目标仓库: git@github.com:iunknow588/AnDAO.git
 
 set -e  # 遇到错误时退出
@@ -50,12 +50,12 @@ echo "📋 检查 Git 状态..."
 git status
 
 # 创建上传脚本
-cat > /home/lc/luckee_dao/AnDaoWallet/h5/scripts/upload_to_github.sh << 'EOF'
+cat > /home/lc/luckee_dao/AnDaoWallet/h5/deploy/upload_to_github.sh << 'EOF'
 #!/bin/bash
 
 # AnDaoWallet H5 项目自动上传到 GitHub 脚本
 # 目标仓库: git@github.com:iunknow588/AnDAO.git
-# 使用方法: ./scripts/upload_to_github.sh [commit-message]
+# 使用方法: ./deploy/upload_to_github.sh [commit-message]
 
 set -e  # 遇到错误时退出
 

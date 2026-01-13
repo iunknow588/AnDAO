@@ -998,6 +998,6 @@ type TwoPhaseCommitTaskStatus =
 ### 相关文档
 
 - [系统概述](./系统概述.md)
-- [架构设计](./back/架构设计.md)
-- [两阶段提交加密功能说明](./back/两阶段提交加密功能说明.md)
+- [架构设计](../check/back/架构设计.md)
+- [两阶段提交加密功能说明](../check/back/两阶段提交加密功能说明.md)
 
