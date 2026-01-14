@@ -54,4 +54,13 @@ bash ./deploy/deploy-vercel.sh
 echo ""
 echo "🎉 全部完成：GitHub 推送 + Vercel 部署 已执行"
 echo ""
+echo "=== 部署信息 ==="
+echo "🌐 项目域名: https://andao.cdao.online"
+echo "📦 部署时间: $(date '+%Y-%m-%d %H:%M:%S')"
+echo ""
+echo "💡 提示："
+echo "   - 如果域名未在 Vercel 中配置，请访问 Vercel Dashboard 添加域名"
+echo "   - Vercel Dashboard: https://vercel.com/iunknow588s-projects/an-dao/settings/domains"
+echo "   - 添加域名: andao.cdao.online"
+echo ""
 
