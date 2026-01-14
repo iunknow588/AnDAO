@@ -13,6 +13,49 @@ interface MonitoringConfig {
   tracesSampleRate?: number;
 }
 
+function redactSensitiveString(input: string): string {
+  // 1) 典型 0x 私钥（32 bytes = 64 hex chars）
+  const hexPk = /\b0x[a-fA-F0-9]{64}\b/g;
+  // 2) 助记词：粗略匹配“12-24 个以空格分隔的单词”，避免误杀，宁可保守
+  const mnemonicLike =
+    /\b([a-zA-Z]{3,}\s+){11,23}[a-zA-Z]{3,}\b/g;
+  // 3) 明确关键词
+  const keywordSecrets =
+    /(private\s*key|privkey|secret\s*key|mnemonic|seed\s*phrase|助记词|私钥)/gi;
+
+  return input
+    .replace(hexPk, '[REDACTED_PRIVATE_KEY]')
+    .replace(mnemonicLike, '[REDACTED_MNEMONIC]')
+    .replace(keywordSecrets, '[REDACTED]');
+}
+
+function redactSensitiveValue(value: unknown): unknown {
+  if (typeof value === 'string') return redactSensitiveString(value);
+  if (value && typeof value === 'object') {
+    // 深拷贝并脱敏常见字段名（保守处理，避免把用户输入带出浏览器）
+    const sensitiveKeys = new Set([
+      'privateKey',
+      'privKey',
+      'mnemonic',
+      'seed',
+      'seedPhrase',
+      'password',
+      'passphrase',
+      'secret',
+    ]);
+    const out: any = Array.isArray(value) ? [] : {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (sensitiveKeys.has(k)) {
+        out[k] = '[REDACTED]';
+      } else {
+        out[k] = redactSensitiveValue(v);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
 class MonitoringService {
   private initialized = false;
   private config: MonitoringConfig = {
@@ -55,6 +98,36 @@ class MonitoringService {
           environment: this.config.environment,
           release: this.config.release,
           tracesSampleRate: this.config.tracesSampleRate,
+          // ⚠️ 安全：对上报内容做脱敏，避免私钥/助记词被意外带出浏览器
+          beforeSend(event: any) {
+            try {
+              // message / exception
+              if (event?.message) event.message = redactSensitiveString(String(event.message));
+              if (event?.exception?.values?.length) {
+                event.exception.values = event.exception.values.map((ex: any) => ({
+                  ...ex,
+                  value: ex?.value ? redactSensitiveString(String(ex.value)) : ex?.value,
+                }));
+              }
+
+              // extra / contexts / tags（都可能携带业务上下文）
+              if (event?.extra) event.extra = redactSensitiveValue(event.extra);
+              if (event?.contexts) event.contexts = redactSensitiveValue(event.contexts);
+              if (event?.tags) event.tags = redactSensitiveValue(event.tags);
+
+              // breadcrumbs（部分 SDK 可能记录 console / fetch）
+              if (Array.isArray(event?.breadcrumbs)) {
+                event.breadcrumbs = event.breadcrumbs.map((b: any) => ({
+                  ...b,
+                  message: b?.message ? redactSensitiveString(String(b.message)) : b?.message,
+                  data: b?.data ? redactSensitiveValue(b.data) : b?.data,
+                }));
+              }
+            } catch {
+              // 脱敏失败不阻塞上报，但尽量不抛出异常影响业务
+            }
+            return event;
+          },
           integrations: [
             // 浏览器集成
             Sentry.browserTracingIntegration(),

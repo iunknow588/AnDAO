@@ -12,16 +12,58 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { accountManager } from '@/services/AccountManager';
 import { securityVault } from '@/services/SecurityVault';
 import { storageAdapter } from '@/adapters/StorageAdapter';
+import * as chains from '@/config/chains';
 import type { Address } from 'viem';
 
 describe('账户创建流程 E2E', () => {
   const testPassword = 'test-password-123';
   const testOwnerAddress = '0x1234567890123456789012345678901234567890' as Address;
+  const predictedMantle = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as Address;
+  const predictedInjective = '0xcccccccccccccccccccccccccccccccccccccccc' as Address;
 
   beforeEach(async () => {
     // 清理存储
     await storageAdapter.clear();
     await securityVault.clear();
+
+    // 为测试环境注入简化的链配置，避免依赖真实环境变量
+    vi.spyOn(chains, 'getChainConfigByChainId').mockImplementation((chainId: number) => ({
+      chainId,
+      name: chainId === 5000 ? 'Mantle' : 'Injective',
+      rpcUrl: 'http://localhost:8545',
+      bundlerUrl: 'http://localhost:3000',
+      kernelFactoryAddress: '0x0000000000000000000000000000000000000001',
+      entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+      multiChainValidatorAddress: '0x0000000000000000000000000000000000000002',
+      nativeCurrency: {
+        name: 'Test',
+        symbol: 'TST',
+        decimals: 18,
+      },
+    }));
+
+    // 避免 RPC 调用：mock 地址预测 / 部署 / 部署检查
+    vi.spyOn(accountManager, 'predictAccountAddress').mockImplementation(async (_owner, chainId) => {
+      return (chainId === 5000 ? predictedMantle : predictedInjective) as Address;
+    });
+    vi.spyOn(accountManager, 'createAndDeployAccount').mockImplementation(
+      async (owner: Address, chainId: number) => {
+        const addr = (chainId === 5000 ? predictedMantle : predictedInjective) as Address;
+        await accountManager.importAccount({
+          address: addr,
+          chainId,
+          owner,
+          status: 'deployed',
+          createdAt: Date.now(),
+          deployedAt: Date.now(),
+        });
+        return addr;
+      }
+    );
+    vi.spyOn(accountManager, 'accountExists').mockImplementation(async (address: Address, chainId: number) => {
+      const expected = (chainId === 5000 ? predictedMantle : predictedInjective).toLowerCase();
+      return address.toLowerCase() === expected;
+    });
     
     // 初始化 AccountManager
     await accountManager.init();

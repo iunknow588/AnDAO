@@ -44,6 +44,8 @@ describe('KeyManagerService', () => {
   beforeEach(() => {
     keyManagerService = new KeyManagerService();
     vi.clearAllMocks();
+    // clearAllMocks 不会恢复 mockReturnValue，显式重置为默认“已认证”
+    vi.mocked(authService.isAuthenticated).mockReturnValue(true);
   });
 
   describe('savePrivateKey', () => {

@@ -64,7 +64,8 @@ export const HomePage = observer(() => {
   const navigate = useNavigate();
 
   const handleCreateAccount = () => {
-    navigate('/wallet/create');
+    // 跳转到三路径账户创建统一入口，而不是旧的单一路径创建页面
+    navigate('/welcome');
   };
 
   const handleSendTransaction = () => {

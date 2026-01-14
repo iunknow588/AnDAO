@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PaymasterService } from '../PaymasterService';
+import { getChainConfigByChainId } from '@/config/chains';
 import { UserOperation } from '@/types';
 import type { Address } from 'viem';
 
@@ -73,15 +74,13 @@ describe('PaymasterService', () => {
         signature: '0x',
       };
 
-      // Mock 没有 Paymaster 的链配置
-      vi.doMock('@/config/chains', () => ({
-        getChainConfigByChainId: vi.fn().mockReturnValue({
-          chainId: 5000,
-          name: 'Mantle',
-          rpcUrl: 'https://rpc.mantle.xyz',
-          paymasterAddress: undefined,
-        }),
-      }));
+      // Mock 没有 Paymaster 的链配置（仅对本次调用生效）
+      vi.mocked(getChainConfigByChainId).mockReturnValueOnce({
+        chainId: 5000,
+        name: 'Mantle',
+        rpcUrl: 'https://rpc.mantle.xyz',
+        paymasterAddress: undefined,
+      } as any);
 
       const paymasterData = await paymasterService.buildPaymasterData(userOp, 5000);
 
@@ -106,13 +105,13 @@ describe('PaymasterService', () => {
     });
 
     it('应该在没有 Paymaster 时返回 null', () => {
-      // Mock 没有 Paymaster 的链配置
-      vi.doMock('@/config/chains', () => ({
-        getChainConfigByChainId: vi.fn().mockReturnValue({
-          chainId: 5000,
-          paymasterAddress: undefined,
-        }),
-      }));
+      // Mock 没有 Paymaster 的链配置（仅对本次调用生效）
+      vi.mocked(getChainConfigByChainId).mockReturnValueOnce({
+        chainId: 5000,
+        name: 'Mantle',
+        rpcUrl: 'https://rpc.mantle.xyz',
+        paymasterAddress: undefined,
+      } as any);
 
       const address = paymasterService.getPaymasterAddress(5000);
 

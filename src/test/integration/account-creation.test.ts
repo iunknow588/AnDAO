@@ -24,12 +24,17 @@ vi.mock('@/config/chains', () => ({
     rpcUrl: 'https://rpc.mantle.xyz',
     kernelFactoryAddress: '0x0000000000000000000000000000000000000001',
     entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+    multiChainValidatorAddress: '0x0000000000000000000000000000000000000002',
+    bundlerUrl: 'https://bundler.mantle.xyz',
   }),
 }));
 
 vi.mock('@/utils/kernel', () => ({
   predictAccountAddress: vi.fn().mockResolvedValue('0x1234567890123456789012345678901234567890'),
-  createAccount: vi.fn().mockResolvedValue('0x1234567890123456789012345678901234567890'),
+  createAccount: vi.fn().mockResolvedValue({
+    address: '0x1234567890123456789012345678901234567890',
+    txHash: '0x' + '11'.repeat(32),
+  }),
 }));
 
 describe('账户创建集成测试', () => {

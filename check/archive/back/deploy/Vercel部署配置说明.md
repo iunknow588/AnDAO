@@ -234,7 +234,7 @@ kernel-dev/
 
 - [Vercel部署指南](./Vercel部署指南.md) - 详细的部署步骤和配置说明
 - [系统概述](./系统概述.md) - 项目架构和设计说明
-- [开发检查清单](../check/check_list.md) - 开发任务清单
+- [开发检查清单](../docs/check_list.md) - 开发任务清单
 
 ---
 

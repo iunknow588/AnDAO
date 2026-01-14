@@ -8,10 +8,25 @@ import { storageAdapter } from '@/adapters/StorageAdapter';
 import { StorageKey } from '@/types';
 import type { Address } from 'viem';
 
+// Mock viem before模块加载，避免 hoist 变量未定义问题
+vi.mock('viem', async () => {
+  const actual = await vi.importActual<typeof import('viem')>('viem');
+  return {
+    ...actual,
+    createPublicClient: vi.fn().mockReturnValue({
+      getBytecode: vi.fn().mockResolvedValue('0x1234'),
+    }),
+    http: vi.fn(),
+  };
+});
+
 // Mock kernel utils
 vi.mock('@/utils/kernel', () => ({
   predictAccountAddress: vi.fn().mockResolvedValue('0x1234567890123456789012345678901234567890' as Address),
-  createAccount: vi.fn().mockResolvedValue('0x1234567890123456789012345678901234567890' as Address),
+  createAccount: vi.fn().mockResolvedValue({
+    address: '0x1234567890123456789012345678901234567890' as Address,
+    txHash: '0x' + '11'.repeat(32),
+  }),
 }));
 
 // Mock storage adapter
@@ -31,6 +46,7 @@ vi.mock('@/config/chains', () => ({
     bundlerUrl: 'https://bundler.mantle.xyz',
     kernelFactoryAddress: '0x0000000000000000000000000000000000000001',
     entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+    multiChainValidatorAddress: '0x0000000000000000000000000000000000000002',
     nativeCurrency: {
       name: 'Mantle',
       symbol: 'MNT',
@@ -232,23 +248,7 @@ describe('AccountManager', () => {
       const address = '0x1234567890123456789012345678901234567890' as Address;
       const chainId = 5000;
 
-      // Mock viem publicClient
-      const mockGetBytecode = vi.fn().mockResolvedValue('0x1234');
-      vi.mock('viem', async () => {
-        const actual = await vi.importActual('viem');
-        return {
-          ...actual,
-          createPublicClient: vi.fn().mockReturnValue({
-            getBytecode: mockGetBytecode,
-          }),
-        };
-      });
-
-      // 重新导入以应用 mock
-      const { AccountManager } = await import('../AccountManager');
-      const manager = new AccountManager();
-
-      const exists = await manager.accountExists(address, chainId);
+      const exists = await accountManager.accountExists(address, chainId);
 
       expect(exists).toBe(true);
     });

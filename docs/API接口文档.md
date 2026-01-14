@@ -25,6 +25,7 @@
 6. [DApp 集成示例](#6-dapp-集成示例)
 7. [错误处理](#7-错误处理)
 8. [类型定义](#8-类型定义)
+9. [插件接口补充](#9-插件接口补充)
 
 ---
 
@@ -969,6 +970,64 @@ type TwoPhaseCommitTaskStatus =
 
 ---
 
+## 9. 插件接口补充
+
+本章节补充延迟/条件交易相关插件接口的关键签名（用于与实现对齐）。
+
+### 9.1 DelayedTransactionPlugin（延迟交易）
+
+#### `scheduleTransaction(...)`
+
+```typescript
+async scheduleTransaction(
+  accountAddress: Address,
+  chainId: number,
+  config: DelayedTransactionConfig,
+  signerPrivateKey: `0x${string}`
+): Promise<DelayedTransaction>
+```
+
+#### `cancelTransaction(...)`
+
+```typescript
+async cancelTransaction(
+  transactionId: string,
+  accountAddress: Address,
+  chainId: number,
+  signerPrivateKey: `0x${string}`
+): Promise<string>
+```
+
+#### `executeTransaction(...)`
+
+```typescript
+async executeTransaction(
+  transaction: DelayedTransaction,
+  signerPrivateKey: `0x${string}`
+): Promise<string>
+```
+
+#### `checkAndExecuteDueTransactions(...)`
+
+```typescript
+async checkAndExecuteDueTransactions(
+  signerPrivateKey: `0x${string}`
+): Promise<number>
+```
+
+### 9.2 ConditionalTransactionPlugin（条件交易）
+
+#### `CONTRACT_STATE` 条件参数格式
+
+```typescript
+{
+  address: Address,
+  functionName: string,
+  abi: any[],
+  args?: any[]
+}
+```
+
 ## 总结
 
 本文档描述了 AnDaoWallet HTML5 版本的 API 接口。本钱包实现标准的 Ethereum Provider 接口（EIP-1193），兼容 EIP-6963 钱包发现标准。
@@ -997,7 +1056,7 @@ type TwoPhaseCommitTaskStatus =
 
 ### 相关文档
 
-- [系统概述](./系统概述.md)
-- [架构设计](../check/back/架构设计.md)
-- [两阶段提交加密功能说明](../check/back/两阶段提交加密功能说明.md)
+- [系统需求规格说明书（SRS）](./系统需求规格说明书.md)
+- [系统概要设计说明书](./系统概要设计说明书.md)
+- [系统详细设计](./系统详细设计.md)
 

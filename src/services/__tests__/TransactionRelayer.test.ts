@@ -38,8 +38,11 @@ vi.mock('@/utils/kernel', () => ({
   encodeExecuteBatchCallData: vi.fn().mockReturnValue('0xabcd'),
 }));
 
-// Mock eip712 utils
+// Mock eip712 utils（同时提供 getUserOpHash 和 signUserOperation，避免动态导入报错）
 vi.mock('@/utils/eip712', () => ({
+  getUserOpHash: vi.fn().mockReturnValue(
+    '0x1234567890123456789012345678901234567890123456789012345678901234'
+  ),
   signUserOperation: vi.fn().mockResolvedValue('0x1234567890abcdef'),
 }));
 
@@ -61,6 +64,9 @@ vi.mock('viem', () => ({
   }),
   http: vi.fn(),
 }));
+
+// 补充 BundlerClient 上的 ensureBundler 方法，避免 Gas 估算降级路径报错
+vi.mocked(bundlerClient as any).ensureBundler = vi.fn().mockResolvedValue(undefined);
 
 describe('TransactionRelayer', () => {
   let transactionRelayer: TransactionRelayer;
@@ -107,12 +113,8 @@ describe('TransactionRelayer', () => {
       const data = '0x1234';
       const ownerPrivateKey = '0x1234567890123456789012345678901234567890123456789012345678901234' as `0x${string}`;
 
-      vi.doMock('@/config/chains', () => ({
-        getChainConfigByChainId: vi.fn().mockReturnValue({
-          chainId: 5000,
-          bundlerUrl: undefined,
-        }),
-      }));
+      // 模拟 bundler 客户端拒绝（相当于缺少有效 bundler）
+      vi.mocked(bundlerClient.sendUserOperation).mockRejectedValue(new Error('No bundler'));
 
       await expect(
         transactionRelayer.sendTransaction(accountAddress, chainId, target, data, ownerPrivateKey)

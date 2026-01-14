@@ -9,8 +9,8 @@
  * @module utils/kernel
  */
 
-import type { Address, Hex } from 'viem';
-import { createPublicClient, createWalletClient, http, encodeFunctionData, decodeFunctionResult } from 'viem';
+import type { Address, Hex, Hash } from 'viem';
+import { createPublicClient, createWalletClient, http, encodeFunctionData } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { KERNEL_FACTORY_ABI, KERNEL_ABI, ENTRYPOINT_ABI } from './kernel-types';
 
@@ -71,24 +71,34 @@ export async function predictAccountAddress(
  * @param salt 盐值
  * @param rpcUrl RPC 节点 URL
  * @param signerPrivateKey 签名者私钥（可选，用于发送部署交易）
- * @returns 账户地址（已部署或预测的地址）
+ * @returns 对象形式结果：
+ * - address: 账户地址（已部署或预测的地址）
+ * - txHash:  部署交易哈希（仅在提供 signerPrivateKey 时返回）
  * 
  * @example
  * ```typescript
  * // 仅预测地址
- * const address = await createAccount(factory, initData, salt, rpcUrl);
+ * const { address } = await createAccount(factory, initData, salt, rpcUrl);
  * 
  * // 实际部署账户
- * const address = await createAccount(factory, initData, salt, rpcUrl, privateKey);
+ * const { address, txHash } = await createAccount(factory, initData, salt, rpcUrl, privateKey);
+ * // txHash 为本次部署交易哈希，可用于前端展示与跟踪
  * ```
  */
+export interface CreateAccountResult {
+  /** 账户地址（已部署或预测的地址） */
+  address: Address;
+  /** 部署交易哈希（仅在提供 signerPrivateKey 时存在） */
+  txHash?: Hash;
+}
+
 export async function createAccount(
   factoryAddress: Address,
   initData: Hex,
   salt: Hex,
   rpcUrl: string,
   signerPrivateKey?: Hex
-): Promise<Address> {
+): Promise<CreateAccountResult> {
   const publicClient = createPublicClient({
     transport: http(rpcUrl),
   });
@@ -106,16 +116,24 @@ export async function createAccount(
       abi: KERNEL_FACTORY_ABI,
       functionName: 'createAccount',
       args: [initData, salt],
+      // viem@2 写合约时需要显式提供 chain（或在客户端配置），
+      // 这里使用 null 表示“使用当前 transport 对应的链”。
+      chain: null,
     });
 
     // 等待交易确认
     await publicClient.waitForTransactionReceipt({ hash });
     
-    // 返回创建的账户地址
-    return predictAccountAddress(factoryAddress, initData, salt, rpcUrl);
+    // 返回创建的账户地址和本次部署交易哈希
+    const address = await predictAccountAddress(factoryAddress, initData, salt, rpcUrl);
+    return {
+      address,
+      txHash: hash as Hash,
+    };
   } else {
     // 仅预测地址，不实际创建
-    return predictAccountAddress(factoryAddress, initData, salt, rpcUrl);
+    const address = await predictAccountAddress(factoryAddress, initData, salt, rpcUrl);
+    return { address };
   }
 }
 

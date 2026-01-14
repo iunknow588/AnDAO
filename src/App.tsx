@@ -13,8 +13,12 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PasswordInputProvider } from '@/components/PasswordInput';
 
 // 懒加载页面组件
+const WelcomePage = lazy(() => import('@/pages/WelcomePage').then(m => ({ default: m.WelcomePage })));
 const HomePage = lazy(() => import('@/pages/HomePage').then(m => ({ default: m.HomePage })));
 const CreateAccountPage = lazy(() => import('@/pages/CreateAccountPage').then(m => ({ default: m.CreateAccountPage })));
+const CreateAccountPathAPage = lazy(() => import('@/pages/CreateAccountPathAPage').then(m => ({ default: m.CreateAccountPathAPage })));
+const CreateAccountPathBPage = lazy(() => import('@/pages/CreateAccountPathBPage').then(m => ({ default: m.CreateAccountPathBPage })));
+const CreateAccountPathCPage = lazy(() => import('@/pages/CreateAccountPathCPage').then(m => ({ default: m.CreateAccountPathCPage })));
 const ImportWalletPage = lazy(() => import('@/pages/ImportWalletPage').then(m => ({ default: m.ImportWalletPage })));
 const UnlockWalletPage = lazy(() => import('@/pages/UnlockWalletPage').then(m => ({ default: m.UnlockWalletPage })));
 const SendTransactionPage = lazy(() => import('@/pages/SendTransactionPage').then(m => ({ default: m.SendTransactionPage })));
@@ -51,7 +55,11 @@ function App() {
             <Routes>
               <Route path="/" element={<MainLayout />}>
                 <Route index element={<HomePage />} />
+                <Route path="welcome" element={<WelcomePage />} />
                 <Route path="wallet/create" element={<CreateAccountPage />} />
+                <Route path="wallet/create/path-a" element={<CreateAccountPathAPage />} />
+                <Route path="wallet/create/path-b" element={<CreateAccountPathBPage />} />
+                <Route path="wallet/create/path-c" element={<CreateAccountPathCPage />} />
                 <Route path="wallet/import" element={<ImportWalletPage />} />
                 <Route path="wallet/unlock" element={<UnlockWalletPage />} />
                 <Route path="assets" element={<AssetsPage />} />

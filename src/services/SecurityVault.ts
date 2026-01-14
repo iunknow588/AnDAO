@@ -126,11 +126,11 @@ export class SecurityVault {
       }
 
       // 从存储的 salt 派生密钥
-      const salt = this.base64ToArrayBuffer(stored.salt);
-      const key = await this.deriveKey(password, salt);
+      const saltBytes = this.base64ToArrayBuffer(stored.salt);
+      const derivedKey = await this.deriveKey(password, saltBytes);
 
       // 解密数据
-      const decrypted = await this.decrypt(stored.encrypted, stored.iv, key);
+      const decrypted = await this.decrypt(stored.encrypted, stored.iv, derivedKey);
       return JSON.parse(decrypted) as T;
     } catch (error) {
       console.error('SecurityVault getItem error:', error);

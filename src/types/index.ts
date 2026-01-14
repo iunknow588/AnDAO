@@ -175,6 +175,107 @@ export class WalletError extends Error {
   }
 }
 
+/**
+ * 用户类型枚举
+ * 
+ * 定义三种不同的用户类型，对应三种账户创建路径
+ */
+export enum UserType {
+  /**
+   * 路径A：极简体验（无EOA用户）
+   * 直接创建智能合约账户，无需现有钱包
+   */
+  SIMPLE = 'simple',
+  
+  /**
+   * 路径B：标准模式（有EOA用户）
+   * 有EOA账户，作为控制者创建智能合约账户
+   */
+  STANDARD = 'standard',
+  
+  /**
+   * 路径C：成为赞助商
+   * 注册成为赞助商，帮助他人创建账户
+   */
+  SPONSOR = 'sponsor',
+}
+
+/**
+ * 账户状态枚举
+ * 
+ * 与 AccountInfo.status 字段保持兼容：
+ * - PREDICTED: 仅预测地址，未在链上部署
+ * - PENDING: 已发起创建/审核流程，链上状态待确认
+ * - DEPLOYED: 已在链上成功部署
+ */
+export enum AccountStatus {
+  PREDICTED = 'predicted',
+  PENDING = 'pending',
+  DEPLOYED = 'deployed',
+}
+
+/**
+ * 账户创建路径枚举
+ * 
+ * 定义三种账户创建路径
+ */
+export enum AccountCreationPath {
+  /**
+   * 路径A：极简体验
+   * 自动生成密钥 → 选择赞助商 → 提交申请 → 等待审核 → 创建成功
+   */
+  PATH_A_SIMPLE = 'path_a_simple',
+  
+  /**
+   * 路径B：标准模式
+   * EOA设置 → 生成智能账户密钥 → 选择Gas支付 → 创建账户
+   */
+  PATH_B_STANDARD = 'path_b_standard',
+  
+  /**
+   * 路径C：成为赞助商
+   * 身份验证 → 设置资料 → 配置Gas账户 → 设置规则 → 完成注册
+   */
+  PATH_C_SPONSOR = 'path_c_sponsor',
+}
+
+/**
+ * 扩展的账户信息接口
+ * 
+ * 在基础AccountInfo基础上，添加三路径相关的字段
+ */
+export interface ExtendedAccountInfo extends AccountInfo {
+  /**
+   * 用户类型
+   * 标识账户是通过哪种路径创建的
+   */
+  userType?: UserType;
+  
+  /**
+   * EOA地址（路径B和C）
+   * 用于支付Gas费用的EOA账户地址
+   */
+  eoaAddress?: string;
+  
+  /**
+   * 赞助商ID（路径C）
+   * 如果用户是赞助商，存储赞助商ID
+   */
+  sponsorId?: string;
+  
+  /**
+   * 申请状态（路径A）
+   * 如果账户是通过路径A创建的，存储申请状态
+   */
+  applicationStatus?: 'pending' | 'approved' | 'rejected';
+  
+  /**
+   * 申请存储标识符（路径A）
+   * 存储申请详情的IPFS CID或其他存储标识符
+   */
+  applicationStorageId?: string;
+}
+
 // 存储键
 export enum StorageKey {
   ACCOUNTS = 'accounts',

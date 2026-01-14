@@ -12,7 +12,7 @@ import { keyManagerService } from '@/services/KeyManagerService';
 import { useStore } from '@/stores';
 import { TwoPhaseCommitTask } from '@/types';
 import { ErrorHandler } from '@/utils/errors';
-import type { Address, Hash } from 'viem';
+import type { Address } from 'viem';
 
 const Container = styled.div`
   max-width: 800px;
@@ -255,8 +255,8 @@ export const TwoPhaseCommitPage = observer(() => {
 
       const txHash = await twoPhaseCommitService.reveal(
         selectedTask.id,
-        revealData,
-        signerPrivateKey
+        signerPrivateKey,
+        revealData
       );
 
       setSuccess(`揭示成功，交易哈希: ${txHash}`);

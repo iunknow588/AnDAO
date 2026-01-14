@@ -16,6 +16,7 @@ vi.mock('@/services/BundlerClient', () => ({
     setChainId: vi.fn(),
     sendUserOperation: vi.fn(),
     estimateUserOperationGas: vi.fn(),
+    ensureBundler: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -26,6 +27,9 @@ vi.mock('@/utils/kernel', () => ({
 
 vi.mock('@/utils/eip712', () => ({
   signUserOperation: vi.fn().mockResolvedValue('0x1234567890abcdef'),
+  getUserOpHash: vi.fn().mockReturnValue(
+    '0x1234567890123456789012345678901234567890123456789012345678901234'
+  ),
 }));
 
 vi.mock('@/config/chains', () => ({

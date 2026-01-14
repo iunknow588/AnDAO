@@ -5,23 +5,11 @@
  * 直接使用 kernel-dev 中的 Factory 合约接口
  */
 
-import { createPublicClient, createWalletClient, http, type Address, type Hash, encodeFunctionData } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { ChainConfig, AccountInfo, SupportedChain } from '@/types';
-import { getChainConfig, getChainConfigByChainId } from '@/config/chains';
+import { createPublicClient, http, type Address, type Hash, encodeFunctionData } from 'viem';
+import { AccountInfo } from '@/types';
+import { getChainConfigByChainId } from '@/config/chains';
 import { storageAdapter } from '@/adapters/StorageAdapter';
 import { StorageKey } from '@/types';
-
-/**
- * 从 kernel-types 导入 ABI
- * 
- * 使用统一的类型导入辅助模块，优先从 kernel-dev 导入，失败时使用降级方案
- * 
- * 注意：当 kernel-dev 编译完成后，kernel-types 模块会自动使用实际的 ABI
- * 
- * @see utils/kernel-types.ts
- */
-import { KERNEL_FACTORY_ABI } from '@/utils/kernel-types';
 
 export class AccountManager {
   private accounts: Map<string, AccountInfo> = new Map();
@@ -46,18 +34,21 @@ export class AccountManager {
     const storedAccounts = await storageAdapter.get<AccountInfo[]>(StorageKey.ACCOUNTS);
     if (storedAccounts) {
       // 迁移旧数据：为没有status字段的账户添加status
-      const migratedAccounts = storedAccounts.map((account) => {
+      const migratedAccounts: AccountInfo[] = storedAccounts.map((account) => {
+        // 为了兼容早期存储结构，在迁移过程中使用宽松的 any 类型，
+        // 保证运行时行为不变，同时避免类型系统将旧数据推断为 never。
+        const acc = account as any;
         // 如果账户没有status字段，需要检查是否已部署
-        if (!('status' in account)) {
+        if (!('status' in acc)) {
           // 默认设置为deployed（假设已存在的账户都是已部署的）
           // 实际部署状态会在使用时通过accountExists检查
           return {
-            ...account,
+            ...acc,
             status: 'deployed' as const,
-            deployedAt: account.createdAt, // 使用创建时间作为部署时间
-          };
+            deployedAt: acc.createdAt, // 使用创建时间作为部署时间
+          } as AccountInfo;
         }
-        return account;
+        return acc as AccountInfo;
       });
 
       // 保存迁移后的数据
@@ -99,9 +90,11 @@ export class AccountManager {
   }
 
   /**
-   * 创建并部署账户
+   * 创建并部署账户（返回地址）
    * 
-   * 实际部署账户合约到链上，并保存账户信息
+   * 实际部署账户合约到链上，并保存账户信息。
+   * 这是一个便捷包装方法，仅返回地址，用于绝大部分前端调用场景。
+   * 如需获取部署交易哈希，请使用 createAndDeployAccountWithTx。
    * 
    * @param owner 账户所有者地址（签名者）
    * @param chainId 链 ID
@@ -113,6 +106,26 @@ export class AccountManager {
     chainId: number, 
     signerPrivateKey: `0x${string}`
   ): Promise<Address> {
+    const { address } = await this.createAndDeployAccountWithTx(owner, chainId, signerPrivateKey);
+    return address;
+  }
+
+  /**
+   * 创建并部署账户（返回地址与交易哈希）
+   * 
+   * 在原有 createAndDeployAccount 的基础上，额外返回部署交易哈希，
+   * 主要用于赞助商代付部署等需要链上追踪的场景。
+   * 
+   * @param owner 账户所有者地址（签名者）
+   * @param chainId 链 ID
+   * @param signerPrivateKey 签名者私钥（必需，用于部署账户）
+   * @returns 包含账户地址与可选部署交易哈希的结果对象
+   */
+  async createAndDeployAccountWithTx(
+    owner: Address,
+    chainId: number,
+    signerPrivateKey: `0x${string}`
+  ): Promise<{ address: Address; txHash?: Hash }> {
     const chainConfig = getChainConfigByChainId(chainId);
     if (!chainConfig) {
       throw new Error(`Unsupported chain: ${chainId}`);
@@ -122,7 +135,7 @@ export class AccountManager {
       throw new Error(`Kernel Factory address not configured for chain: ${chainId}`);
     }
 
-    // 预测地址
+    // 预测地址（用于幂等性检查）
     const predictedAddress = await this.predictAccountAddress(owner, chainId);
     
     // 检查是否已部署
@@ -130,7 +143,10 @@ export class AccountManager {
     if (existing?.status === 'deployed') {
       const deployed = await this.accountExists(predictedAddress, chainId);
       if (deployed) {
-        return predictedAddress;
+        return {
+          address: predictedAddress,
+          txHash: undefined,
+        };
       }
     }
 
@@ -140,7 +156,7 @@ export class AccountManager {
 
     // 部署账户
     const { createAccount } = await import('@/utils/kernel');
-    const accountAddress = await createAccount(
+    const { address: accountAddress, txHash } = await createAccount(
       chainConfig.kernelFactoryAddress as Address,
       initData,
       salt,
@@ -161,7 +177,10 @@ export class AccountManager {
     this.accounts.set(this.getAccountKey(accountAddress, chainId), accountInfo);
     await this.saveAccounts();
 
-    return accountAddress;
+    return {
+      address: accountAddress,
+      txHash,
+    };
   }
 
   /**

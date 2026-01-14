@@ -10,6 +10,7 @@ import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores';
 import { useNavigate } from 'react-router-dom';
 import { accountManager } from '@/services/AccountManager';
+import type { AccountInfo } from '@/types';
 import { DEFAULT_CHAIN_CONFIG } from '@/config/chains';
 
 const Container = styled.div`
@@ -125,6 +126,8 @@ export const ImportWalletPage = observer(() => {
         chainId: chainIdNum,
         owner: ownerAddress,
         createdAt: Date.now(),
+        status: 'deployed',
+        deployedAt: Date.now(),
       };
 
       // 手动保存到 AccountManager（因为这是导入，不是创建）

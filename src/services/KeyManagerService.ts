@@ -9,6 +9,7 @@ import { securityVault } from './SecurityVault';
 import { authService } from './AuthService';
 import type { Address, Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { Wallet } from 'ethers';
 
 export interface KeyInfo {
   address: Address;
@@ -155,6 +156,45 @@ export class KeyManagerService {
     return {
       address: account.address,
       privateKey,
+    };
+  }
+
+  /**
+   * 生成 BIP-39 助记词并派生私钥
+   *
+   * 说明：
+   * - 使用 ethers.Wallet.createRandom() 生成符合 BIP-39 的助记词和私钥
+   * - 仅在需要显示助记词给用户备份的场景中使用
+   */
+  async generateMnemonic(): Promise<{ mnemonic: string; address: Address; privateKey: Hex }> {
+    const wallet = Wallet.createRandom();
+    const phrase = wallet.mnemonic?.phrase;
+
+    if (!phrase) {
+      // 理论上不会发生，仅作防御性处理
+      throw new Error('Failed to generate mnemonic phrase');
+    }
+
+    return {
+      mnemonic: phrase,
+      address: wallet.address as Address,
+      privateKey: wallet.privateKey as Hex,
+    };
+  }
+
+  /**
+   * 从 BIP-39 助记词恢复私钥
+   *
+   * @param mnemonic 助记词短语（12/24 词）
+   * @throws 如果助记词格式无效或无法解析
+   */
+  async recoverFromMnemonic(mnemonic: string): Promise<{ address: Address; privateKey: Hex }> {
+    // ethers 内部会对助记词做基本校验并抛出错误
+    const wallet = Wallet.fromPhrase(mnemonic.trim());
+
+    return {
+      address: wallet.address as Address,
+      privateKey: wallet.privateKey as Hex,
     };
   }
 

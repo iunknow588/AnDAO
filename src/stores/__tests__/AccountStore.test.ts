@@ -3,9 +3,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AccountStore } from '../AccountStore';
 import { accountManager } from '@/services/AccountManager';
-import { AccountInfo } from '@/types';
+import { AccountInfo, SupportedChain } from '@/types';
 
 // Mock AccountManager
 vi.mock('@/services/AccountManager', () => ({
@@ -13,20 +12,34 @@ vi.mock('@/services/AccountManager', () => ({
     init: vi.fn().mockResolvedValue(undefined),
     getAllAccounts: vi.fn().mockResolvedValue([]),
     createAndDeployAccount: vi.fn(),
+    importAccount: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
-// Mock chain config
+// Mock chain config（保持与实际实现的类型一致）
 vi.mock('@/config/chains', () => ({
-  DEFAULT_CHAIN: 'mantle',
+  DEFAULT_CHAIN: SupportedChain.MANTLE,
+  getChainConfig: vi.fn().mockImplementation((chain: SupportedChain) => {
+    if (chain === SupportedChain.MANTLE) {
+      return { chainId: 5000 };
+    }
+    if (chain === SupportedChain.INJECTIVE) {
+      return { chainId: 888 };
+    }
+    return { chainId: 5000 };
+  }),
 }));
 
 describe('AccountStore', () => {
-  let accountStore: AccountStore;
+  let AccountStoreClass: typeof import('../AccountStore').AccountStore;
+  let accountStore: import('../AccountStore').AccountStore;
 
-  beforeEach(() => {
-    accountStore = new AccountStore();
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // 动态导入，确保 mocks 生效
+    const mod = await import('../AccountStore');
+    AccountStoreClass = mod.AccountStore;
+    accountStore = new AccountStoreClass();
   });
 
   describe('init', () => {
@@ -121,8 +134,9 @@ describe('AccountStore', () => {
 
       accountStore.setCurrentAccount(account);
 
-      expect(accountStore.currentAccount).toBe(account);
-      expect(accountStore.currentChain).toBe(5000);
+      // 使用深度相等判断，避免 MobX 包装导致引用不一致
+      expect(accountStore.currentAccount).toStrictEqual(account);
+      expect(accountStore.currentChain).toBe(SupportedChain.MANTLE);
     });
   });
 
@@ -145,7 +159,7 @@ describe('AccountStore', () => {
       accountStore.accounts = [account1, account2];
       accountStore.setCurrentChain(888 as any);
 
-      expect(accountStore.currentChain).toBe(888);
+      expect(accountStore.currentChain).toBe('injective');
       expect(accountStore.currentAccount?.chainId).toBe(888);
     });
   });
@@ -161,13 +175,16 @@ describe('AccountStore', () => {
         deployedAt: Date.now(),
       };
 
-      vi.mocked(accountManager.getAllAccounts).mockResolvedValue([]);
+      // 第一次调用（init）返回空列表，第二次调用（addAccount 后）返回包含新账户的列表
+      vi.mocked(accountManager.getAllAccounts)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([account]);
 
       await accountStore.init();
       await accountStore.addAccount(account);
 
-      expect(accountStore.accounts).toContain(account);
-      expect(accountStore.currentAccount).toBe(account);
+      expect(accountStore.accounts).toStrictEqual([account]);
+      expect(accountStore.currentAccount).toStrictEqual(account);
     });
 
     it('应该拒绝添加重复账户', async () => {
