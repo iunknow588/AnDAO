@@ -35,7 +35,6 @@
 - `npm run deploy:vercel`
 - `npm run deploy:check`
 - `npm run deploy:all`
-- `npm run deploy:all:ci`
 - `npm run dev:local:start`
 - `npm run dev:local:test`
 - `npm run bridge:check`
@@ -46,7 +45,6 @@
 - `bash ./scripts/management/deploy/deploy-vercel.sh`
 - `bash ./scripts/management/deploy/check-deployment.sh`
 - `bash ./scripts/management/deploy/deploy-github-and-vercel.sh "chore: deploy h5"`
-- `bash ./scripts/management/deploy/deploy-github-and-vercel.sh --non-interactive --mode git "chore: deploy h5"`
 
 ## 🧪 Sponsor 索引 Mock 联调
 

@@ -28,7 +28,6 @@
     "deploy:vercel": "bash scripts/management/deploy/deploy-vercel.sh",
     "deploy:check": "bash scripts/management/deploy/check-deployment.sh",
     "deploy:all": "bash scripts/management/deploy/deploy-github-and-vercel.sh",
-    "deploy:all:ci": "bash scripts/management/deploy/deploy-github-and-vercel.sh --non-interactive --mode git",
     "dev:local:start": "bash scripts/management/dev/start-local-dev.sh",
     "dev:local:test": "bash scripts/management/dev/test-local-dev.sh",
     "prepare": "node -e \"try{require('husky').install()}catch(e){if(process.env.CI!=='true')console.log(e)}\"",
