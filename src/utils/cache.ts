@@ -17,7 +17,7 @@ interface CacheItem<T> {
  * 内存缓存
  */
 class MemoryCache {
-  private cache: Map<string, CacheItem<any>> = new Map();
+  private cache: Map<string, CacheItem<unknown>> = new Map();
   private maxSize: number;
 
   constructor(maxSize: number = 100) {
@@ -223,4 +223,3 @@ export class UnifiedCache {
 }
 
 export const unifiedCache = new UnifiedCache();
-

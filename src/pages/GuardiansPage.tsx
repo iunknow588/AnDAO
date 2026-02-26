@@ -5,17 +5,19 @@
  * 参考 Keplr 设置页面风格
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores';
 import { useNavigate } from 'react-router-dom';
-import { guardianService } from '@/services/GuardianService';
+import { guardianService, GuardianProposal } from '@/services/GuardianService';
 import { keyManagerService } from '@/services/KeyManagerService';
-import { authService } from '@/services/AuthService';
 import { Guardian } from '@/types';
 import { ErrorHandler } from '@/utils/errors';
+import { validateEvmAddress } from '@/utils/pathFlowValidation';
+import { trimInputValue } from '@/utils/formValidation';
 import type { Address } from 'viem';
+import { PathAUpgradeDialog } from '@/components/PathAUpgradeDialog';
 
 const Container = styled.div`
   max-width: 600px;
@@ -79,14 +81,6 @@ const Button = styled.button`
   &:disabled {
     background: #ccc;
     cursor: not-allowed;
-  }
-`;
-
-const DangerButton = styled(Button)`
-  background: #e03131;
-
-  &:hover {
-    background: #c92a2a;
   }
 `;
 
@@ -154,6 +148,7 @@ export const GuardiansPage = observer(() => {
   const { accountStore } = useStore();
   const navigate = useNavigate();
   const [guardians, setGuardians] = useState<Guardian[]>([]);
+  const [proposals, setProposals] = useState<GuardianProposal[]>([]);
   const [newGuardianAddress, setNewGuardianAddress] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
@@ -162,6 +157,8 @@ export const GuardiansPage = observer(() => {
   const [success, setSuccess] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [showPasswordInput, setShowPasswordInput] = useState(false);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const [shouldCheckUpgrade, setShouldCheckUpgrade] = useState(false);
 
   const currentAccount = accountStore.currentAccount;
   const currentChainId = currentAccount?.chainId || 0;
@@ -170,7 +167,34 @@ export const GuardiansPage = observer(() => {
     if (currentAccount) {
       loadGuardians();
     }
+    // 仅在账户切换时刷新守护人列表
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAccount]);
+
+  // 检查升级条件
+  useEffect(() => {
+    const checkUpgrade = async () => {
+      if (!currentAccount || !shouldCheckUpgrade) return;
+
+      try {
+        const needsUpgrade = await guardianService.checkPathAUpgrade(
+          currentAccount.address as Address,
+          currentChainId
+        );
+        
+        if (needsUpgrade) {
+          setShowUpgradeDialog(true);
+        }
+        
+        setShouldCheckUpgrade(false);
+      } catch (err) {
+        console.error('检查升级条件失败:', err);
+        setShouldCheckUpgrade(false);
+      }
+    };
+
+    checkUpgrade();
+  }, [currentAccount, shouldCheckUpgrade, currentChainId]);
 
   const loadGuardians = async () => {
     if (!currentAccount) return;
@@ -184,8 +208,15 @@ export const GuardiansPage = observer(() => {
         currentChainId
       );
       setGuardians(list);
+      
+      // 加载提案列表
+      const proposalList = await guardianService.getGuardianProposals(
+        currentAccount.address as Address,
+        currentChainId
+      );
+      setProposals(proposalList.filter(p => p.status === 'pending'));
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsLoading(false);
     }
@@ -197,12 +228,15 @@ export const GuardiansPage = observer(() => {
       return;
     }
 
-    if (!newGuardianAddress || !newGuardianAddress.startsWith('0x')) {
-      setError('请输入有效的地址');
+    const guardianAddressValue = trimInputValue(newGuardianAddress);
+    const newGuardianAddressError = validateEvmAddress(guardianAddressValue, '守护人地址');
+    if (newGuardianAddressError) {
+      setError(newGuardianAddressError);
       return;
     }
 
-    if (!password) {
+    const passwordValue = trimInputValue(password);
+    if (!passwordValue) {
       setShowPasswordInput(true);
       setError('请输入密码以解锁私钥');
       return;
@@ -215,7 +249,7 @@ export const GuardiansPage = observer(() => {
     try {
       // 从安全存储获取签名者私钥
       const ownerAddress = currentAccount.owner as Address;
-      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, password);
+      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, passwordValue);
 
       if (!signerPrivateKey) {
         setError('无法获取签名者私钥，请检查密码');
@@ -223,20 +257,31 @@ export const GuardiansPage = observer(() => {
         return;
       }
 
-      const txHash = await guardianService.addGuardian(
+      const result = await guardianService.addGuardian(
         currentAccount.address as Address,
         currentChainId,
-        newGuardianAddress as Address,
+        guardianAddressValue as Address,
         signerPrivateKey
       );
 
-      setSuccess(`守护人添加成功，交易哈希: ${txHash}`);
+      // 检查返回的是交易哈希还是提案ID
+      if (result.startsWith('proposal_')) {
+        setSuccess(`提案已创建，提案ID: ${result.substring(0, 20)}...`);
+      } else {
+        setSuccess(`守护人添加成功，交易哈希: ${result}`);
+      }
+      
       setNewGuardianAddress('');
       setPassword('');
       setShowPasswordInput(false);
       await loadGuardians();
+      
+      // 检查是否需要升级（如果守护人数量达到3个）
+      if (guardians.length + 1 >= 3) {
+        setShouldCheckUpgrade(true);
+      }
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsAdding(false);
     }
@@ -248,7 +293,8 @@ export const GuardiansPage = observer(() => {
       return;
     }
 
-    if (!password) {
+    const passwordValue = trimInputValue(password);
+    if (!passwordValue) {
       setShowPasswordInput(true);
       setError('请输入密码以解锁私钥');
       return;
@@ -261,7 +307,7 @@ export const GuardiansPage = observer(() => {
     try {
       // 从安全存储获取签名者私钥
       const ownerAddress = currentAccount.owner as Address;
-      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, password);
+      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, passwordValue);
 
       if (!signerPrivateKey) {
         setError('无法获取签名者私钥，请检查密码');
@@ -279,7 +325,7 @@ export const GuardiansPage = observer(() => {
       setSuccess(`守护人移除成功，交易哈希: ${txHash}`);
       await loadGuardians();
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsRemoving(null);
     }
@@ -306,6 +352,32 @@ export const GuardiansPage = observer(() => {
 
       <Card>
         <SectionTitle>添加守护人</SectionTitle>
+        {guardians.length >= 3 && (
+          <div style={{ 
+            background: '#fff3cd', 
+            border: '1px solid #ffc107', 
+            borderRadius: '8px', 
+            padding: '12px', 
+            marginBottom: '16px',
+            fontSize: '14px',
+            color: '#856404'
+          }}>
+            ⚠️ 当前有 {guardians.length} 个守护人，添加新守护人需要创建提案并等待投票通过。
+          </div>
+        )}
+        {guardians.length < 3 && (
+          <div style={{ 
+            background: '#d1ecf1', 
+            border: '1px solid #bee5eb', 
+            borderRadius: '8px', 
+            padding: '12px', 
+            marginBottom: '16px',
+            fontSize: '14px',
+            color: '#0c5460'
+          }}>
+            ℹ️ 当前有 {guardians.length} 个守护人，可以直接添加（无需投票）。
+          </div>
+        )}
         {showPasswordInput && (
           <Input
             type="password"
@@ -325,9 +397,28 @@ export const GuardiansPage = observer(() => {
         {error && <ErrorMessage>{error}</ErrorMessage>}
         {success && <SuccessMessage>{success}</SuccessMessage>}
         <Button onClick={handleAddGuardian} disabled={isAdding || !newGuardianAddress}>
-          {isAdding ? '添加中...' : '添加守护人'}
+          {isAdding 
+            ? '处理中...' 
+            : guardians.length >= 3 
+              ? '创建提案' 
+              : '添加守护人'}
         </Button>
       </Card>
+
+      {proposals.length > 0 && (
+        <Card>
+          <SectionTitle>待投票提案 ({proposals.length})</SectionTitle>
+          <div style={{ marginBottom: '16px', fontSize: '14px', color: '#666' }}>
+            您有 {proposals.length} 个待投票的提案，请前往提案页面进行投票。
+          </div>
+          <Button 
+            onClick={() => navigate('/guardians/proposals')}
+            style={{ background: '#4c6ef5' }}
+          >
+            查看提案列表
+          </Button>
+        </Card>
+      )}
 
       <Card>
         <SectionTitle>守护人列表</SectionTitle>
@@ -354,7 +445,19 @@ export const GuardiansPage = observer(() => {
           </GuardianList>
         )}
       </Card>
+
+      {currentAccount && (
+        <PathAUpgradeDialog
+          isOpen={showUpgradeDialog}
+          onClose={() => setShowUpgradeDialog(false)}
+          accountAddress={currentAccount.address as Address}
+          chainId={currentChainId}
+          onUpgradeSuccess={() => {
+            // 升级成功后，重新加载账户信息
+            window.location.reload();
+          }}
+        />
+      )}
     </Container>
   );
 });
-

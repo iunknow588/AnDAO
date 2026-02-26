@@ -112,11 +112,25 @@ export class SettingsService {
    * 设置Gas代付
    */
   async setPaymasterSettings(
-    enabled: boolean,
+    enabledOrConfig:
+      | boolean
+      | {
+          enabled?: boolean;
+          strategy?: 'auto' | 'always' | 'never';
+        },
     strategy: 'auto' | 'always' | 'never' = 'auto'
   ): Promise<void> {
+    if (typeof enabledOrConfig === 'object') {
+      const current = await this.getPaymasterSettings();
+      await this.updateSettings({
+        paymasterEnabled: enabledOrConfig.enabled ?? current.enabled,
+        paymasterStrategy: enabledOrConfig.strategy ?? current.strategy,
+      });
+      return;
+    }
+
     await this.updateSettings({
-      paymasterEnabled: enabled,
+      paymasterEnabled: enabledOrConfig,
       paymasterStrategy: strategy,
     });
   }
@@ -149,6 +163,34 @@ export class SettingsService {
   }
 
   /**
+   * 兼容接口：获取安全提示设置
+   */
+  async getSecuritySettings(): Promise<{
+    showSecurityTips: boolean;
+    level: 'low' | 'medium' | 'high';
+  }> {
+    const settings = await this.getSecurityTipSettings();
+    return {
+      showSecurityTips: settings.showSecurityTips,
+      level: settings.securityTipLevel,
+    };
+  }
+
+  /**
+   * 兼容接口：设置安全提示
+   */
+  async setSecuritySettings(config: {
+    showSecurityTips?: boolean;
+    level?: 'low' | 'medium' | 'high';
+  }): Promise<void> {
+    const current = await this.getSecuritySettings();
+    await this.setSecurityTipSettings(
+      config.showSecurityTips ?? current.showSecurityTips,
+      config.level ?? current.level
+    );
+  }
+
+  /**
    * 重置为默认设置
    */
   async resetToDefaults(): Promise<void> {
@@ -158,4 +200,3 @@ export class SettingsService {
 }
 
 export const settingsService = new SettingsService();
-

@@ -4,7 +4,7 @@
  * 管理两阶段提交任务，包括任务列表、状态监控、揭示操作
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { twoPhaseCommitService } from '@/services/TwoPhaseCommitService';
@@ -12,6 +12,7 @@ import { keyManagerService } from '@/services/KeyManagerService';
 import { useStore } from '@/stores';
 import { TwoPhaseCommitTask } from '@/types';
 import { ErrorHandler } from '@/utils/errors';
+import { trimInputFields, validateRequiredFields } from '@/utils/formValidation';
 import type { Address } from 'viem';
 
 const Container = styled.div`
@@ -216,19 +217,34 @@ export const TwoPhaseCommitPage = observer(() => {
       const list = await twoPhaseCommitService.getAllTasks();
       setTasks(list);
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleReveal = async () => {
-    if (!selectedTask || !revealData) {
-      setError('请输入揭示数据');
+    if (!selectedTask) {
+      setError('请先选择任务');
       return;
     }
 
-    if (!password) {
+    const normalizedFields = trimInputFields({
+      revealData,
+      password,
+    });
+    const revealDataValue = normalizedFields.revealData;
+    const passwordValue = normalizedFields.password;
+
+    const requiredError = validateRequiredFields([
+      { value: revealDataValue, label: '揭示数据' },
+    ]);
+    if (requiredError) {
+      setError(requiredError);
+      return;
+    }
+
+    if (!passwordValue) {
       setError('请输入密码以解锁私钥');
       return;
     }
@@ -246,7 +262,7 @@ export const TwoPhaseCommitPage = observer(() => {
       }
 
       const ownerAddress = currentAccount.owner as Address;
-      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, password);
+      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, passwordValue);
 
       if (!signerPrivateKey) {
         setError('无法获取签名者私钥，请检查密码');
@@ -256,7 +272,7 @@ export const TwoPhaseCommitPage = observer(() => {
       const txHash = await twoPhaseCommitService.reveal(
         selectedTask.id,
         signerPrivateKey,
-        revealData
+        revealDataValue
       );
 
       setSuccess(`揭示成功，交易哈希: ${txHash}`);
@@ -265,7 +281,7 @@ export const TwoPhaseCommitPage = observer(() => {
       setSelectedTask(null);
       await loadTasks();
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setRevealingTaskId(null);
     }
@@ -284,7 +300,7 @@ export const TwoPhaseCommitPage = observer(() => {
       setSuccess('任务已取消');
       await loadTasks();
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     }
   };
 
@@ -403,4 +419,3 @@ export const TwoPhaseCommitPage = observer(() => {
     </Container>
   );
 });
-

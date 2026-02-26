@@ -4,7 +4,7 @@
  * 管理 ERC-7579 插件的安装、卸载和配置
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores';
@@ -12,6 +12,8 @@ import { pluginService } from '@/services/PluginService';
 import { keyManagerService } from '@/services/KeyManagerService';
 import { IPlugin, PluginType } from '@/types/plugins';
 import { ErrorHandler } from '@/utils/errors';
+import { validateEvmAddress } from '@/utils/pathFlowValidation';
+import { trimInputValue } from '@/utils/formValidation';
 import type { Address } from 'viem';
 
 const Container = styled.div`
@@ -184,6 +186,8 @@ export const PluginsPage = observer(() => {
     if (currentAccount) {
       loadPlugins();
     }
+    // 仅在账户切换时刷新插件列表
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentAccount]);
 
   const loadPlugins = async () => {
@@ -197,7 +201,7 @@ export const PluginsPage = observer(() => {
       const list = pluginService.getAllPlugins();
       setPlugins(list);
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsLoading(false);
     }
@@ -209,7 +213,8 @@ export const PluginsPage = observer(() => {
       return;
     }
 
-    if (!password) {
+    const passwordValue = trimInputValue(password);
+    if (!passwordValue) {
       setShowPasswordInput(true);
       setError('请输入密码以解锁私钥');
       return;
@@ -221,7 +226,7 @@ export const PluginsPage = observer(() => {
 
     try {
       const ownerAddress = currentAccount.owner as Address;
-      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, password);
+      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, passwordValue);
 
       if (!signerPrivateKey) {
         setError('无法获取签名者私钥，请检查密码');
@@ -242,7 +247,7 @@ export const PluginsPage = observer(() => {
       setShowPasswordInput(false);
       await loadPlugins();
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsInstalling(null);
     }
@@ -254,7 +259,8 @@ export const PluginsPage = observer(() => {
       return;
     }
 
-    if (!password) {
+    const passwordValue = trimInputValue(password);
+    if (!passwordValue) {
       setShowPasswordInput(true);
       setError('请输入密码以解锁私钥');
       return;
@@ -266,7 +272,7 @@ export const PluginsPage = observer(() => {
 
     try {
       const ownerAddress = currentAccount.owner as Address;
-      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, password);
+      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, passwordValue);
 
       if (!signerPrivateKey) {
         setError('无法获取签名者私钥，请检查密码');
@@ -286,23 +292,25 @@ export const PluginsPage = observer(() => {
       setShowPasswordInput(false);
       await loadPlugins();
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsUninstalling(null);
     }
   };
 
   const handleAddPlugin = () => {
-    if (!newPluginAddress || !newPluginAddress.startsWith('0x')) {
-      setError('请输入有效的插件地址');
+    const pluginAddressValue = trimInputValue(newPluginAddress);
+    const pluginAddressError = validateEvmAddress(pluginAddressValue, '插件地址');
+    if (pluginAddressError) {
+      setError(pluginAddressError);
       return;
     }
 
     const plugin: IPlugin = {
-      id: `plugin-${newPluginAddress.toLowerCase()}`,
-      name: `Plugin ${newPluginAddress.slice(0, 10)}...`,
+      id: `plugin-${pluginAddressValue.toLowerCase()}`,
+      name: `Plugin ${pluginAddressValue.slice(0, 10)}...`,
       type: newPluginType,
-      address: newPluginAddress as Address,
+      address: pluginAddressValue as Address,
       version: '1.0.0',
       installed: false,
     };
@@ -441,4 +449,3 @@ export const PluginsPage = observer(() => {
     </Container>
   );
 });
-

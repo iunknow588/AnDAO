@@ -8,7 +8,6 @@
  */
 
 import { ChainConfig } from '@/types';
-import { storageAdapter } from '@/adapters/StorageAdapter';
 import { configStorage } from '@/adapters/StorageAdapter';
 
 /**
@@ -192,4 +191,3 @@ export class ChainService {
 }
 
 export const chainService = new ChainService();
-

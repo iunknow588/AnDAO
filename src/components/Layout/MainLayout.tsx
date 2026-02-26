@@ -4,7 +4,6 @@
  * 参考 Keplr 钱包的布局风格，但代码完全独立实现
  */
 
-import React from 'react';
 import styled from 'styled-components';
 import { Outlet } from 'react-router-dom';
 import { Navigation } from '@/components/Navigation';

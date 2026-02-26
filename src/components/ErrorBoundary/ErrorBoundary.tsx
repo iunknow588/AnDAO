@@ -4,7 +4,7 @@
  * 捕获 React 组件树中的错误，提供友好的错误提示
  */
 
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 import styled from 'styled-components';
 import { ErrorHandler } from '@/utils/errors';
 import { monitoringService } from '@/services/MonitoringService';

@@ -4,13 +4,14 @@
  * 钱包设置和配置
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '@/services/AuthService';
 import { settingsService } from '@/services/SettingsService';
 import { paymasterService, type PaymasterUsageRecord } from '@/services/PaymasterService';
+import { validateRequiredFields } from '@/utils/formValidation';
 
 const Container = styled.div`
   max-width: 600px;
@@ -180,7 +181,7 @@ export const SettingsPage = observer(() => {
         setShowSecurityTips(settings.showSecurityTips);
         setSecurityTipLevel(settings.securityTipLevel);
       } catch (err) {
-        console.error('Failed to load settings:', err);
+        console.error('加载设置失败:', err);
       }
     };
     loadSettings();
@@ -196,25 +197,33 @@ export const SettingsPage = observer(() => {
       const history = await paymasterService.getUsageHistory(20);
       setPaymasterHistory(history);
     } catch (error) {
-      console.error('Failed to load paymaster history:', error);
+      console.error('加载 Paymaster 历史失败:', error);
     } finally {
       setIsLoadingHistory(false);
     }
   };
 
   const handleChangePassword = async () => {
-    if (!oldPassword || !newPassword || !confirmPassword) {
-      setError('Please fill in all fields');
+    const requiredError = validateRequiredFields(
+      [
+        { value: oldPassword, label: '当前密码' },
+        { value: newPassword, label: '新密码' },
+        { value: confirmPassword, label: '确认新密码' },
+      ],
+      '请填写所有字段'
+    );
+    if (requiredError) {
+      setError(requiredError);
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError('New passwords do not match');
+      setError('新密码与确认密码不一致');
       return;
     }
 
     if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters');
+      setError('密码至少需要8个字符');
       return;
     }
 
@@ -225,15 +234,15 @@ export const SettingsPage = observer(() => {
     try {
       const success = await authService.changePassword(oldPassword, newPassword);
       if (success) {
-        setSuccess('Password changed successfully');
+        setSuccess('密码修改成功');
         setOldPassword('');
         setNewPassword('');
         setConfirmPassword('');
       } else {
-        setError('Failed to change password');
+        setError('修改密码失败');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to change password');
+      setError(err instanceof Error ? err.message : '修改密码失败');
     } finally {
       setIsChangingPassword(false);
     }
@@ -274,7 +283,7 @@ export const SettingsPage = observer(() => {
 
     try {
       await settingsService.setPaymasterSettings(paymasterEnabled, paymasterStrategy);
-      setSuccess('Gas代付设置已更新');
+      setSuccess('Gas 代付设置已更新');
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');
     } finally {
@@ -445,4 +454,3 @@ export const SettingsPage = observer(() => {
     </Container>
   );
 });
-

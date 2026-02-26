@@ -24,7 +24,7 @@ export interface MonitoringTaskConfig {
  */
 export class MonitoringServiceWorker {
   private registration: ServiceWorkerRegistration | null = null;
-  private messageHandlers: Map<string, (data: any) => void> = new Map();
+  private messageHandlers: Map<string, (data: unknown) => void> = new Map();
 
   /**
    * 初始化 Service Worker
@@ -139,8 +139,8 @@ export class MonitoringServiceWorker {
   /**
    * 注册消息处理器
    */
-  onMessage(type: string, handler: (data: any) => void): void {
-    this.messageHandlers.set(type, handler);
+  onMessage<T = unknown>(type: string, handler: (data: T) => void): void {
+    this.messageHandlers.set(type, (data: unknown) => handler(data as T));
   }
 
   /**

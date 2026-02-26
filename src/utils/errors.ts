@@ -42,7 +42,7 @@ export class WalletError extends Error {
   constructor(
     message: string,
     public code: ErrorCode,
-    public details?: any
+    public details?: unknown
   ) {
     super(message);
     this.name = 'WalletError';
@@ -116,10 +116,19 @@ export class WalletError extends Error {
   }
 }
 
+export type WalletMessageType = 'error' | 'success';
+
+export interface WalletMessageDetail {
+  type: WalletMessageType;
+  message: string;
+}
+
 /**
  * 错误处理工具函数
  */
 export class ErrorHandler {
+  private static readonly MESSAGE_EVENT = 'wallet:message';
+
   /**
    * 从错误对象创建 WalletError
    */
@@ -169,9 +178,22 @@ export class ErrorHandler {
   /**
    * 处理错误并返回用户友好的消息
    */
-  static handleError(error: unknown): string {
-    const walletError = this.fromError(error);
+  static handleError(
+    error: unknown,
+    defaultCode: ErrorCode = ErrorCode.UNKNOWN_ERROR
+  ): string {
+    const walletError = this.fromError(error, defaultCode);
     return walletError.toUserMessage();
+  }
+
+  /**
+   * 兼容旧调用：获取用户友好的错误消息
+   */
+  static getErrorMessage(
+    error: unknown,
+    defaultCode: ErrorCode = ErrorCode.UNKNOWN_ERROR
+  ): string {
+    return this.handleError(error, defaultCode);
   }
 
   /**
@@ -185,5 +207,41 @@ export class ErrorHandler {
       details: walletError.details,
     });
   }
-}
 
+  /**
+   * 发布全局消息事件（由 UI 组件统一消费）
+   */
+  private static emitMessage(detail: WalletMessageDetail): void {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent<WalletMessageDetail>(this.MESSAGE_EVENT, { detail }));
+    }
+  }
+
+  /**
+   * 显示错误消息
+   */
+  static showError(message: string): void {
+    console.error('[Error]', message);
+    this.emitMessage({ type: 'error', message });
+  }
+
+  /**
+   * 处理错误并显示全局错误消息
+   */
+  static handleAndShow(
+    error: unknown,
+    defaultCode: ErrorCode = ErrorCode.UNKNOWN_ERROR
+  ): string {
+    const message = this.handleError(error, defaultCode);
+    this.showError(message);
+    return message;
+  }
+
+  /**
+   * 显示成功消息
+   */
+  static showSuccess(message: string): void {
+    console.info('[Success]', message);
+    this.emitMessage({ type: 'success', message });
+  }
+}

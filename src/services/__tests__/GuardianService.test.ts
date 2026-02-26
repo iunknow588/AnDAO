@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { GuardianService } from '../GuardianService';
 import { transactionRelayer } from '../TransactionRelayer';
 import { storageAdapter } from '@/adapters/StorageAdapter';
-import { StorageKey } from '@/types';
 import type { Address } from 'viem';
 import { getChainConfigByChainId } from '@/config/chains';
 
@@ -46,7 +45,7 @@ describe('GuardianService', () => {
       entryPointAddress: '0x0000000000000000000000000000000000000002',
       recoveryPluginAddress: '0x0000000000000000000000000000000000000003',
       nativeCurrency: { name: 'Mantle', symbol: 'MNT', decimals: 18 },
-    } as any);
+    } as NonNullable<ReturnType<typeof getChainConfigByChainId>>);
   });
 
   describe('getGuardians', () => {
@@ -65,7 +64,6 @@ describe('GuardianService', () => {
         },
       ];
 
-      const storageKey = `${StorageKey.GUARDIANS}_${accountAddress}_${chainId}`;
       vi.mocked(storageAdapter.get).mockResolvedValue(mockGuardians);
 
       const guardians = await guardianService.getGuardians(accountAddress, chainId);
@@ -95,7 +93,7 @@ describe('GuardianService', () => {
 
       const mockTxHash = '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
 
-      vi.mocked(transactionRelayer.sendTransaction).mockResolvedValue(mockTxHash as any);
+      vi.mocked(transactionRelayer.sendTransaction).mockResolvedValue(mockTxHash);
       vi.mocked(storageAdapter.get).mockResolvedValue([]);
       vi.mocked(storageAdapter.set).mockResolvedValue();
 
@@ -120,7 +118,7 @@ describe('GuardianService', () => {
 
       const mockTxHash = '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
 
-      vi.mocked(transactionRelayer.sendTransaction).mockResolvedValue(mockTxHash as any);
+      vi.mocked(transactionRelayer.sendTransaction).mockResolvedValue(mockTxHash);
       vi.mocked(storageAdapter.get).mockResolvedValue([
         {
           address: guardianAddress,
@@ -150,7 +148,7 @@ describe('GuardianService', () => {
 
       const mockTxHash = '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
 
-      vi.mocked(transactionRelayer.sendTransaction).mockResolvedValue(mockTxHash as any);
+      vi.mocked(transactionRelayer.sendTransaction).mockResolvedValue(mockTxHash);
       vi.mocked(storageAdapter.set).mockResolvedValue();
 
       const result = await guardianService.initiateRecovery(
@@ -179,7 +177,7 @@ describe('GuardianService', () => {
         kernelFactoryAddress: '0x0000000000000000000000000000000000000001',
         entryPointAddress: '0x0000000000000000000000000000000000000002',
         nativeCurrency: { name: 'Test', symbol: 'TEST', decimals: 18 },
-      } as any);
+      } as NonNullable<ReturnType<typeof getChainConfigByChainId>>);
 
       await expect(
         guardianService.initiateRecovery(
@@ -193,4 +191,3 @@ describe('GuardianService', () => {
     });
   });
 });
-

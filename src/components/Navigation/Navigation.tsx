@@ -9,6 +9,7 @@ import { Link, useLocation } from 'react-router-dom';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores';
+import { CHAIN_GROUPS } from '@/config/chains';
 
 const Nav = styled.nav`
   background: #ffffff;
@@ -75,8 +76,8 @@ export const Navigation = observer(() => {
   };
 
   const handleChainChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const chain = e.target.value as any;
-    accountStore.setCurrentChain(chain);
+    const chainId = parseInt(e.target.value);
+    accountStore.setCurrentChain(chainId);
   };
 
   return (
@@ -98,11 +99,18 @@ export const Navigation = observer(() => {
 
       <AccountInfo>
         <ChainSelector
-          value={accountStore.currentChain}
+          value={accountStore.currentChainId}
           onChange={handleChainChange}
         >
-          <option value="mantle">Mantle</option>
-          <option value="injective">Injective</option>
+          {CHAIN_GROUPS.map((group) => (
+            <optgroup key={group.key} label={group.label}>
+              {group.networks.map((network) => (
+                <option key={network.chainId} value={network.chainId}>
+                  {network.name}
+                </option>
+              ))}
+            </optgroup>
+          ))}
         </ChainSelector>
 
         {accountStore.currentAccount && (
@@ -115,4 +123,3 @@ export const Navigation = observer(() => {
     </Nav>
   );
 });
-

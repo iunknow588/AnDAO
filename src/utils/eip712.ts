@@ -13,8 +13,7 @@
  */
 
 import type { Address, Hex } from 'viem';
-import { createWalletClient, http, type Hash } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { type Hash } from 'viem';
 import { keccak256, encodeAbiParameters, parseAbiParameters } from 'viem';
 import { UserOperation } from '@/types';
 
@@ -118,7 +117,7 @@ export async function signUserOperation(
   entryPointAddress: Address,
   chainId: number,
   signerPrivateKey: Hex,
-  rpcUrl: string
+  _rpcUrl: string
 ): Promise<Hex> {
   // 1. 获取 UserOperation 哈希
   const userOpHash = getUserOpHash(userOp, entryPointAddress, chainId);
@@ -137,4 +136,3 @@ export async function signUserOperation(
   
   return signature as Hex;
 }
-

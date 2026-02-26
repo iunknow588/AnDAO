@@ -19,14 +19,38 @@ vi.mock('@/services/AccountManager', () => ({
 // Mock chain config（保持与实际实现的类型一致）
 vi.mock('@/config/chains', () => ({
   DEFAULT_CHAIN: SupportedChain.MANTLE,
+  CHAIN_CONFIGS: {
+    [SupportedChain.MANTLE]: { chainId: 5000 },
+    [SupportedChain.INJECTIVE]: { chainId: 1776 },
+    [SupportedChain.AVALANCHE]: { chainId: 43114 },
+  },
+  MANTLE_CHAIN: { chainId: 5000 },
+  MANTLE_TESTNET_CHAIN: { chainId: 5003 },
+  INJECTIVE_CHAIN: { chainId: 1776 },
+  INJECTIVE_TESTNET_CHAIN: { chainId: 1439 },
   getChainConfig: vi.fn().mockImplementation((chain: SupportedChain) => {
     if (chain === SupportedChain.MANTLE) {
       return { chainId: 5000 };
     }
     if (chain === SupportedChain.INJECTIVE) {
-      return { chainId: 888 };
+      return { chainId: 1776 };
+    }
+    if (chain === SupportedChain.AVALANCHE) {
+      return { chainId: 43114 };
     }
     return { chainId: 5000 };
+  }),
+  getSupportedChainByChainId: vi.fn().mockImplementation((chainId: number) => {
+    if ([5000, 5003].includes(chainId)) return SupportedChain.MANTLE;
+    if ([1776, 1439].includes(chainId)) return SupportedChain.INJECTIVE;
+    if ([43114, 43113].includes(chainId)) return SupportedChain.AVALANCHE;
+    return undefined;
+  }),
+  getChainConfigByChainId: vi.fn().mockImplementation((chainId: number) => {
+    if ([5000, 5003].includes(chainId)) return { chainId };
+    if ([1776, 1439].includes(chainId)) return { chainId };
+    if ([43114, 43113].includes(chainId)) return { chainId };
+    return undefined;
   }),
 }));
 
@@ -96,7 +120,7 @@ describe('AccountStore', () => {
         deployedAt: Date.now(),
       };
 
-      vi.mocked(accountManager.createAndDeployAccount).mockResolvedValue(newAddress as any);
+      vi.mocked(accountManager.createAndDeployAccount).mockResolvedValue(newAddress as `0x${string}`);
       vi.mocked(accountManager.getAllAccounts).mockResolvedValue([mockAccount]);
 
       await accountStore.init();
@@ -151,16 +175,65 @@ describe('AccountStore', () => {
 
       const account2: AccountInfo = {
         address: '0x2222222222222222222222222222222222222222',
-        chainId: 888,
+        chainId: 1439,
+        owner: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        createdAt: Date.now(),
+        status: 'deployed' as const,
+      };
+
+      accountStore.accounts = [account1, account2];
+      accountStore.setCurrentChain(1439);
+
+      expect(accountStore.currentChain).toBe('injective');
+      expect(accountStore.currentAccount?.chainId).toBe(1439);
+    });
+  });
+
+  describe('getAccount', () => {
+    it('同链族场景下，传入枚举值应优先匹配当前激活 network 的 chainId', () => {
+      const mantleMainnet: AccountInfo = {
+        address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        chainId: 5000,
         owner: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
         createdAt: Date.now(),
       };
 
-      accountStore.accounts = [account1, account2];
-      accountStore.setCurrentChain(888 as any);
+      const mantleTestnet: AccountInfo = {
+        address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        chainId: 5003,
+        owner: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        createdAt: Date.now(),
+      };
 
-      expect(accountStore.currentChain).toBe('injective');
-      expect(accountStore.currentAccount?.chainId).toBe(888);
+      accountStore.accounts = [mantleMainnet, mantleTestnet];
+      accountStore.currentChain = SupportedChain.MANTLE;
+      accountStore.currentChainId = 5003;
+
+      const account = accountStore.getAccount(SupportedChain.MANTLE);
+      expect(account?.chainId).toBe(5003);
+    });
+
+    it('当前 chainId 为自定义链时，不应把枚举查询误映射到自定义链账户', () => {
+      const mantleMainnet: AccountInfo = {
+        address: '0xcccccccccccccccccccccccccccccccccccccccc',
+        chainId: 5000,
+        owner: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        createdAt: Date.now(),
+      };
+
+      const customChainAccount: AccountInfo = {
+        address: '0xdddddddddddddddddddddddddddddddddddddddd',
+        chainId: 999999,
+        owner: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        createdAt: Date.now(),
+      };
+
+      accountStore.accounts = [mantleMainnet, customChainAccount];
+      accountStore.currentChain = SupportedChain.MANTLE;
+      accountStore.currentChainId = 999999;
+
+      const account = accountStore.getAccount(SupportedChain.MANTLE);
+      expect(account?.chainId).toBe(5000);
     });
   });
 
@@ -229,4 +302,3 @@ describe('AccountStore', () => {
     });
   });
 });
-

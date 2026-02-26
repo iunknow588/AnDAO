@@ -4,10 +4,10 @@
  * 管理代币列表、添加、删除等功能
  */
 
-import { createPublicClient, http, type Address } from 'viem';
+import { type Address } from 'viem';
 import { storageAdapter } from '@/adapters/StorageAdapter';
 import { StorageKey } from '@/types';
-import { getChainConfigByChainId } from '@/config/chains';
+import { rpcClientManager } from '@/utils/RpcClientManager';
 
 // ERC-20 标准 ABI（用于查询余额和代币信息）
 const ERC20_ABI = [
@@ -102,16 +102,12 @@ export class TokenService {
 
   /**
    * 查询代币信息
+   * 
+   * 使用缓存的 PublicClient 实例，避免重复创建
    */
   async fetchTokenInfo(address: Address, chainId: number): Promise<Omit<TokenInfo, 'addedAt' | 'balance'>> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
-    }
-
-    const publicClient = createPublicClient({
-      transport: http(chainConfig.rpcUrl),
-    });
+    // 使用 RpcClientManager 获取缓存的 PublicClient 实例
+    const publicClient = rpcClientManager.getPublicClient(chainId);
 
     try {
       const [name, symbol, decimals] = await Promise.all([
@@ -146,16 +142,12 @@ export class TokenService {
 
   /**
    * 查询代币余额
+   * 
+   * 使用缓存的 PublicClient 实例，避免重复创建
    */
   async getTokenBalance(address: Address, accountAddress: Address, chainId: number): Promise<bigint> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
-    }
-
-    const publicClient = createPublicClient({
-      transport: http(chainConfig.rpcUrl),
-    });
+    // 使用 RpcClientManager 获取缓存的 PublicClient 实例
+    const publicClient = rpcClientManager.getPublicClient(chainId);
 
     try {
       const balance = await publicClient.readContract({

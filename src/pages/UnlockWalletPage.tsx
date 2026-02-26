@@ -7,7 +7,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
-import { useStore } from '@/stores';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '@/services/AuthService';
 
@@ -110,18 +109,18 @@ export const UnlockWalletPage = observer(() => {
     e.preventDefault();
     
     if (!password) {
-      setError('Please enter password');
+      setError('请输入密码');
       return;
     }
 
     // 首次登录需要确认密码
     if (isFirstLogin) {
       if (!confirmPassword) {
-        setError('Please confirm password');
+        setError('请确认密码');
         return;
       }
       if (password !== confirmPassword) {
-        setError('Passwords do not match');
+        setError('两次输入的密码不一致');
         return;
       }
     }
@@ -143,10 +142,10 @@ export const UnlockWalletPage = observer(() => {
       if (success) {
         navigate('/');
       } else {
-        setError(isFirstLogin ? 'Failed to create password' : 'Invalid password');
+        setError(isFirstLogin ? '创建密码失败' : '密码错误');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to unlock wallet');
+      setError(err instanceof Error ? err.message : '解锁钱包失败');
     } finally {
       setIsUnlocking(false);
     }
@@ -197,4 +196,3 @@ export const UnlockWalletPage = observer(() => {
     </Container>
   );
 });
-

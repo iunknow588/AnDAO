@@ -6,7 +6,6 @@
 
 import { storageAdapter } from '@/adapters/StorageAdapter';
 import { StorageKey } from '@/types';
-import type { Hash } from 'viem';
 
 export interface TransactionHistory {
   hash: string;
@@ -162,4 +161,3 @@ export class TransactionHistoryService {
 }
 
 export const transactionHistoryService = new TransactionHistoryService();
-

@@ -77,8 +77,8 @@ describe('交易流程 E2E', () => {
 
     // 避免 transactionRelayer 内部构造/签名 UserOp 时触发 RPC：
     // - 这里的 E2E 目标是验证“流程串起来并拿到 hash”，而非真实链交互
-    vi.spyOn(transactionRelayer, 'sendTransaction').mockResolvedValue(mockBundlerResponse.userOperationHash as any);
-    vi.spyOn(transactionRelayer, 'sendBatch').mockResolvedValue(mockBundlerResponse.userOperationHash as any);
+    vi.spyOn(transactionRelayer, 'sendTransaction').mockResolvedValue(mockBundlerResponse.userOperationHash);
+    vi.spyOn(transactionRelayer, 'sendBatch').mockResolvedValue(mockBundlerResponse.userOperationHash);
     vi.spyOn(accountManager, 'createAndDeployAccount').mockResolvedValue('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Address);
   });
 
@@ -93,7 +93,6 @@ describe('交易流程 E2E', () => {
     // 2. 构造交易
     const to = '0x9876543210987654321098765432109876543210' as Address;
     const callData = '0x' as Hex;
-    const value = BigInt(1000000000000000000); // 1 ETH
 
     // 3. 发送交易
     const txHash = await transactionRelayer.sendTransaction(
@@ -153,7 +152,6 @@ describe('交易流程 E2E', () => {
     );
 
     // 2. 构造交易
-    const to = '0x9876543210987654321098765432109876543210' as Address;
     const callData = '0x' as Hex;
 
     // 3. 估算 Gas（通过 sendTransaction 内部调用）
@@ -213,4 +211,3 @@ describe('交易流程 E2E', () => {
     expect(receipt.actualGasUsed).toBeGreaterThan(BigInt(0));
   });
 });
-

@@ -4,13 +4,14 @@
  * 初始化路由和全局状态
  */
 
-import React, { lazy, Suspense } from 'react';
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { StoreProvider } from '@/stores';
 import { MainLayout } from '@/components/Layout/MainLayout';
 import { GlobalStyle } from '@/styles/global';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PasswordInputProvider } from '@/components/PasswordInput';
+import { GlobalMessage } from '@/components/GlobalMessage';
 
 // 懒加载页面组件
 const WelcomePage = lazy(() => import('@/pages/WelcomePage').then(m => ({ default: m.WelcomePage })));
@@ -26,9 +27,12 @@ const AssetsPage = lazy(() => import('@/pages/AssetsPage').then(m => ({ default:
 const TransactionHistoryPage = lazy(() => import('@/pages/TransactionHistoryPage').then(m => ({ default: m.TransactionHistoryPage })));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const GuardiansPage = lazy(() => import('@/pages/GuardiansPage').then(m => ({ default: m.GuardiansPage })));
+const GuardianProposalsPage = lazy(() => import('@/pages/GuardianProposalsPage').then(m => ({ default: m.GuardianProposalsPage })));
 const TwoPhaseCommitPage = lazy(() => import('@/pages/TwoPhaseCommitPage').then(m => ({ default: m.TwoPhaseCommitPage })));
 const RecoveryPage = lazy(() => import('@/pages/RecoveryPage').then(m => ({ default: m.RecoveryPage })));
 const PluginsPage = lazy(() => import('@/pages/PluginsPage').then(m => ({ default: m.PluginsPage })));
+const SponsorDashboardPage = lazy(() => import('@/pages/SponsorDashboardPage').then(m => ({ default: m.SponsorDashboardPage })));
+const PathConversionPage = lazy(() => import('@/pages/PathConversionPage').then(m => ({ default: m.PathConversionPage })));
 
 // 加载中组件
 const LoadingFallback = () => (
@@ -50,6 +54,7 @@ function App() {
       <StoreProvider>
         <GlobalStyle />
         <PasswordInputProvider />
+        <GlobalMessage />
         <BrowserRouter>
           <Suspense fallback={<LoadingFallback />}>
             <Routes>
@@ -67,9 +72,12 @@ function App() {
                 <Route path="transactions" element={<TransactionHistoryPage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="guardians" element={<GuardiansPage />} />
+                <Route path="guardians/proposals" element={<GuardianProposalsPage />} />
                 <Route path="two-phase-commit" element={<TwoPhaseCommitPage />} />
                 <Route path="recovery" element={<RecoveryPage />} />
                 <Route path="plugins" element={<PluginsPage />} />
+                <Route path="sponsor/dashboard" element={<SponsorDashboardPage />} />
+                <Route path="path-conversion" element={<PathConversionPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>
@@ -81,4 +89,3 @@ function App() {
 }
 
 export default App;
-

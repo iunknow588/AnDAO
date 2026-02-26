@@ -12,13 +12,13 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   padding?: 'none' | 'small' | 'medium' | 'large';
 }
 
-const StyledCard = styled.div<CardProps>`
+const StyledCard = styled.div<{ $variant?: 'default' | 'outlined' | 'elevated'; $padding?: 'none' | 'small' | 'medium' | 'large' }>`
   background: #ffffff;
   border-radius: 12px;
   transition: all 0.2s;
 
   ${(props) => {
-    switch (props.variant) {
+    switch (props.$variant) {
       case 'outlined':
         return `
           border: 1px solid #dee2e6;
@@ -35,7 +35,7 @@ const StyledCard = styled.div<CardProps>`
   }}
 
   ${(props) => {
-    switch (props.padding) {
+    switch (props.$padding) {
       case 'none':
         return 'padding: 0;';
       case 'small':
@@ -55,7 +55,7 @@ export const Card: React.FC<CardProps> = ({
   ...props
 }) => {
   return (
-    <StyledCard variant={variant} padding={padding} {...props}>
+    <StyledCard $variant={variant} $padding={padding} {...props}>
       {children}
     </StyledCard>
   );

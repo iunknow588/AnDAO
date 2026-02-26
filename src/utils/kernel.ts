@@ -13,6 +13,7 @@ import type { Address, Hex, Hash } from 'viem';
 import { createPublicClient, createWalletClient, http, encodeFunctionData } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { KERNEL_FACTORY_ABI, KERNEL_ABI, ENTRYPOINT_ABI } from './kernel-types';
+import { rpcClientManager } from './RpcClientManager';
 
 // 重新导出 ABI（保持向后兼容）
 export { KERNEL_FACTORY_ABI, KERNEL_ABI, ENTRYPOINT_ABI };
@@ -39,24 +40,92 @@ export { KERNEL_FACTORY_ABI, KERNEL_ABI, ENTRYPOINT_ABI };
  * );
  * ```
  */
+/**
+ * 预测账户地址（带超时和重试机制）
+ * 
+ * 使用 Kernel Factory 的 getAddress 方法预测账户地址
+ * 这是确定性地址，基于 initData 和 salt 计算得出
+ * 
+ * 优化：
+ * - 添加 RPC 调用超时（默认 30 秒）
+ * - 添加重试机制（最多 3 次）
+ * - 优化错误提示
+ * 
+ * @param factoryAddress Kernel Factory 合约地址
+ * @param initData 账户初始化数据（Kernel.initialize 的编码数据）
+ * @param salt 盐值（用于确定性地址生成）
+ * @param rpcUrl RPC 节点 URL
+ * @param timeout 超时时间（毫秒，默认 30000）
+ * @param retries 重试次数（默认 3）
+ * @returns 预测的账户地址
+ * 
+ * @example
+ * ```typescript
+ * const address = await predictAccountAddress(
+ *   '0x...', // Factory 地址
+ *   '0x...', // initData
+ *   '0x...', // salt
+ *   'https://rpc.mantle.xyz'
+ * );
+ * ```
+ */
 export async function predictAccountAddress(
   factoryAddress: Address,
   initData: Hex,
   salt: Hex,
-  rpcUrl: string
+  rpcUrl: string,
+  timeout: number = 30000,
+  retries: number = 3
 ): Promise<Address> {
   const publicClient = createPublicClient({
     transport: http(rpcUrl),
   });
 
-  const result = await publicClient.readContract({
-    address: factoryAddress,
-    abi: KERNEL_FACTORY_ABI,
-    functionName: 'getAddress',
-    args: [initData, salt],
-  });
-
-  return result as Address;
+  let lastError: Error | null = null;
+  
+  // 执行 RPC 调用（带超时）
+  const executeWithTimeout = async (): Promise<Address> => {
+    return Promise.race([
+      publicClient.readContract({
+        address: factoryAddress,
+        abi: KERNEL_FACTORY_ABI,
+        functionName: 'getAddress',
+        args: [initData, salt],
+      }).then(result => result as Address),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`RPC 调用超时（${timeout}ms）`)), timeout);
+      }),
+    ]);
+  };
+  
+  // 重试逻辑
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const result = await executeWithTimeout();
+      return result;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      // 如果是最后一次尝试，抛出详细错误
+      if (attempt === retries) {
+        const errorDetails = [
+          `预测账户地址失败（已重试 ${retries} 次）`,
+          `错误信息：${lastError.message}`,
+          `RPC 节点：${rpcUrl}`,
+          `Factory 地址：${factoryAddress}`,
+          `建议：1) 检查网络连接；2) 确认 RPC 节点可用性；3) 验证 Factory 地址配置是否正确`,
+        ].join('\n');
+        throw new Error(errorDetails);
+      }
+      
+      // 等待后重试（指数退避：1秒、2秒、3秒...）
+      const delay = 1000 * (attempt + 1);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  // 理论上不会到达这里，但 TypeScript 需要
+  throw lastError || new Error('预测账户地址失败：未知错误');
 }
 
 /**
@@ -97,9 +166,12 @@ export async function createAccount(
   initData: Hex,
   salt: Hex,
   rpcUrl: string,
-  signerPrivateKey?: Hex
+  signerPrivateKey: Hex | undefined,
+  chainId: number
 ): Promise<CreateAccountResult> {
+  const chain = rpcClientManager.getChain(chainId);
   const publicClient = createPublicClient({
+    chain,
     transport: http(rpcUrl),
   });
 
@@ -108,6 +180,7 @@ export async function createAccount(
     const account = privateKeyToAccount(signerPrivateKey);
     const walletClient = createWalletClient({
       account,
+      chain,
       transport: http(rpcUrl),
     });
 
@@ -116,9 +189,7 @@ export async function createAccount(
       abi: KERNEL_FACTORY_ABI,
       functionName: 'createAccount',
       args: [initData, salt],
-      // viem@2 写合约时需要显式提供 chain（或在客户端配置），
-      // 这里使用 null 表示“使用当前 transport 对应的链”。
-      chain: null,
+      chain,
     });
 
     // 等待交易确认
@@ -232,4 +303,3 @@ export async function getAccountNonce(
 
   return nonce;
 }
-

@@ -15,16 +15,22 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
-import { AccountManager } from '@/services/AccountManager';
-import { KeyManagerService } from '@/services/KeyManagerService';
+import { accountManager } from '@/services/AccountManager';
+import { keyManagerService } from '@/services/KeyManagerService';
 import { sponsorService } from '@/services/SponsorService';
 import { Sponsor, Application, ApplicationStatus } from '@/types/sponsor';
-import { AccountCreationPath, UserType, AccountStatus } from '@/types';
+import { UserType, ExtendedAccountInfo, AccountInfo } from '@/types';
 import { Address } from 'viem';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Input } from '@/components/Input';
+import { PasswordInputField } from '@/components/PasswordInput/PasswordInputField';
+import { MnemonicDisplay } from '@/components/MnemonicDisplay/MnemonicDisplay';
+import { MnemonicVerification } from '@/components/MnemonicVerification/MnemonicVerification';
 import { ErrorHandler } from '@/utils/errors';
+import { validatePasswordPair } from '@/utils/pathFlowValidation';
+import { trimInputValue } from '@/utils/formValidation';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
 import { useStore } from '@/stores';
 
 const Container = styled.div`
@@ -41,7 +47,7 @@ const StepIndicator = styled.div`
   gap: 16px;
 `;
 
-const Step = styled.div<{ active?: boolean; completed?: boolean }>`
+const Step = styled.div<{ $active?: boolean; $completed?: boolean }>`
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -50,17 +56,17 @@ const Step = styled.div<{ active?: boolean; completed?: boolean }>`
   justify-content: center;
   font-weight: 600;
   background: ${props => 
-    props.completed ? '#4c6ef5' : 
-    props.active ? '#4c6ef5' : '#e9ecef'};
+    props.$completed ? '#4c6ef5' : 
+    props.$active ? '#4c6ef5' : '#e9ecef'};
   color: ${props => 
-    props.completed || props.active ? '#ffffff' : '#666'};
+    props.$completed || props.$active ? '#ffffff' : '#666'};
   transition: all 0.3s ease;
 `;
 
-const StepLine = styled.div<{ completed?: boolean }>`
+const StepLine = styled.div<{ $completed?: boolean }>`
   width: 60px;
   height: 2px;
-  background: ${props => props.completed ? '#4c6ef5' : '#e9ecef'};
+  background: ${props => props.$completed ? '#4c6ef5' : '#e9ecef'};
   margin-top: 19px;
 `;
 
@@ -79,10 +85,10 @@ const Description = styled.p`
   text-align: center;
 `;
 
-const SponsorCard = styled(Card)<{ selected?: boolean }>`
+const SponsorCard = styled(Card)<{ $selected?: boolean }>`
   cursor: pointer;
   margin-bottom: 16px;
-  border: 2px solid ${props => props.selected ? '#4c6ef5' : 'transparent'};
+  border: 2px solid ${props => props.$selected ? '#4c6ef5' : 'transparent'};
   transition: all 0.3s ease;
   
   &:hover {
@@ -140,7 +146,7 @@ const StatusDescription = styled.p`
   margin-bottom: 24px;
 `;
 
-const MnemonicDisplay = styled.div`
+const AddressDisplay = styled.div`
   background: #f8f9fa;
   border-radius: 8px;
   padding: 24px;
@@ -185,7 +191,9 @@ export const CreateAccountPathAPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [mnemonic, setMnemonic] = useState('');
-  const [mnemonicConfirmed, setMnemonicConfirmed] = useState(false);
+  const [mnemonicWords, setMnemonicWords] = useState<string[]>([]);
+  const [, setMnemonicConfirmed] = useState(false);
+  const [mnemonicVerified, setMnemonicVerified] = useState(false);
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [selectedSponsor, setSelectedSponsor] = useState<string>();
   const [inviteCode, setInviteCode] = useState('');
@@ -195,9 +203,6 @@ export const CreateAccountPathAPage: React.FC = () => {
   const [predictedAddress, setPredictedAddress] = useState<Address | null>(null);
   const [ownerAddress, setOwnerAddress] = useState<Address | null>(null);
   
-  const accountManager = new AccountManager();
-  const keyManagerService = new KeyManagerService();
-  
   // 步骤1: 设置密码和生成密钥
   useEffect(() => {
     if (step === 1) {
@@ -205,6 +210,18 @@ export const CreateAccountPathAPage: React.FC = () => {
       generateKeyPair();
     }
   }, [step]);
+  
+  // 步骤2: 自动预测地址（进入步骤2时自动触发）
+  useEffect(() => {
+    if (step === 2 && ownerAddress && !predictedAddress && !isLoading) {
+      // 自动触发预测地址，无需用户点击按钮
+      handlePredictAddress().catch(error => {
+        // 错误已在 handlePredictAddress 中处理，这里仅防止未捕获的 Promise rejection
+        console.error('[CreateAccountPathAPage] 自动预测失败:', error);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, ownerAddress]);
   
   // 步骤4: 轮询申请状态
   useEffect(() => {
@@ -241,8 +258,10 @@ export const CreateAccountPathAPage: React.FC = () => {
       const { mnemonic: phrase, address } = await keyManagerService.generateMnemonic();
       setOwnerAddress(address);
       setMnemonic(phrase);
+      // 将助记词拆分为单词数组，用于验证
+      setMnemonicWords(phrase.trim().split(/\s+/));
     } catch (error) {
-      ErrorHandler.handleError(error);
+      ErrorHandler.handleAndShow(error);
     } finally {
       setIsLoading(false);
     }
@@ -252,50 +271,89 @@ export const CreateAccountPathAPage: React.FC = () => {
    * 处理步骤1：设置密码
    */
   const handleSetPassword = () => {
-    if (!password || password.length < 8) {
-      ErrorHandler.showError('密码至少需要8个字符');
+    const passwordValue = trimInputValue(password);
+    const confirmPasswordValue = trimInputValue(confirmPassword);
+
+    if (!passwordValue) {
+      ErrorHandler.showError('请输入密码');
       return;
     }
     
-    if (password !== confirmPassword) {
-      ErrorHandler.showError('两次输入的密码不一致');
+    const passwordError = validatePasswordPair(passwordValue, confirmPasswordValue);
+    if (passwordError) {
+      ErrorHandler.showError(passwordError);
       return;
     }
     
-    if (!mnemonicConfirmed) {
-      ErrorHandler.showError('请先确认已备份助记词');
+    if (!mnemonicVerified) {
+      ErrorHandler.showError('请先完成助记词验证');
       return;
     }
     
     // 保存私钥（加密存储）
     if (ownerAddress) {
-      keyManagerService.savePrivateKey(ownerAddress, '0x' as any, password)
+      // 从助记词恢复私钥（用于保存）
+      keyManagerService.recoverFromMnemonic(mnemonic)
+        .then(({ privateKey }) => {
+          return keyManagerService.savePrivateKey(ownerAddress, privateKey, passwordValue);
+        })
         .then(() => {
           setStep(2);
         })
         .catch(error => {
-          ErrorHandler.handleError(error);
+          ErrorHandler.handleAndShow(error);
         });
     }
   };
   
   /**
    * 处理步骤2：预测地址
+   * 
+   * 优化：
+   * - 添加详细的错误提示
+   * - 提供重试建议
+   * - 显示加载状态
    */
   const handlePredictAddress = async () => {
     if (!ownerAddress) {
       ErrorHandler.showError('密钥生成失败，请重试');
       return;
     }
+    let rpcUrlHint = '未知';
     
     try {
       setIsLoading(true);
-      const chainId = accountStore.currentChain?.chainId || 5001; // 默认Mantle测试网
+      // 使用用户选择的网络（通过右上角网络选择器）
+      const chainId = accountStore.currentChainId;
+      const chainConfig = requireChainConfig(chainId, [
+        'kernelFactoryAddress',
+        'rpcUrl',
+        'multiChainValidatorAddress',
+      ]);
+      rpcUrlHint = chainConfig.rpcUrl;
+      
+      // 调用预测地址（已包含超时和重试机制）
       const address = await accountManager.predictAccountAddress(ownerAddress, chainId);
       setPredictedAddress(address);
-      setStep(3);
+      
+      // 预测成功后自动进入下一步（仅在自动触发时）
+      // 如果用户手动点击"重新预测"，不自动跳转
+      if (step === 2) {
+        // 延迟一小段时间让用户看到结果
+        setTimeout(() => {
+          setStep(3);
+        }, 500);
+      }
     } catch (error) {
-      ErrorHandler.handleError(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      ErrorHandler.showError(
+        `预测账户地址失败：${errorMessage}\n\n` +
+        `建议：\n` +
+        `1. 检查网络连接是否正常\n` +
+        `2. 确认 RPC 节点是否可用（${rpcUrlHint}）\n` +
+        `3. 如果问题持续，请尝试刷新页面或联系支持`
+      );
+      // 预测失败时不自动跳转，让用户可以选择重试
     } finally {
       setIsLoading(false);
     }
@@ -309,7 +367,7 @@ export const CreateAccountPathAPage: React.FC = () => {
       sponsorService.getRecommendedSponsors()
         .then(setSponsors)
         .catch(error => {
-          ErrorHandler.handleError(error);
+          ErrorHandler.handleAndShow(error);
         });
     }
   }, [step]);
@@ -327,7 +385,7 @@ export const CreateAccountPathAPage: React.FC = () => {
         const sponsor = await sponsorService.selectSponsorByInviteCode(inviteCode);
         sponsorId = sponsor.id;
       } catch (error) {
-        ErrorHandler.handleError(error);
+        ErrorHandler.handleAndShow(error);
         return;
       } finally {
         setIsLoading(false);
@@ -342,7 +400,7 @@ export const CreateAccountPathAPage: React.FC = () => {
     // 创建申请
     try {
       setIsLoading(true);
-      const chainId = accountStore.currentChain?.chainId || 5001;
+      const chainId = accountStore.currentChainId;
       
       if (!predictedAddress || !ownerAddress) {
         ErrorHandler.showError('地址预测失败，请重试');
@@ -360,7 +418,7 @@ export const CreateAccountPathAPage: React.FC = () => {
       setApplication(app);
       setStep(4);
     } catch (error) {
-      ErrorHandler.handleError(error);
+      ErrorHandler.handleAndShow(error);
     } finally {
       setIsLoading(false);
     }
@@ -372,22 +430,22 @@ export const CreateAccountPathAPage: React.FC = () => {
   const handleSuccess = () => {
     // 保存账户信息到AccountStore
     if (predictedAddress && ownerAddress) {
-      const chainId = accountStore.currentChain?.chainId || 5001;
-      const accountInfo = {
+      const chainId = accountStore.currentChainId;
+      const accountInfo: ExtendedAccountInfo = {
         address: predictedAddress,
         chainId,
         owner: ownerAddress,
         userType: UserType.SIMPLE,
-        creationPath: AccountCreationPath.PATH_A_SIMPLE,
-        status: AccountStatus.DEPLOYED,
+        status: 'deployed',
         createdAt: Date.now(),
         deployedAt: Date.now(),
         sponsorId: application?.sponsorId,
       };
       
       // 保存账户信息到AccountManager
-      accountManager.importAccount(accountInfo).catch(error => {
-        ErrorHandler.handleError(error);
+      // ExtendedAccountInfo 继承自 AccountInfo，可以直接传递
+      accountManager.importAccount(accountInfo as AccountInfo).catch(error => {
+        ErrorHandler.handleAndShow(error);
       });
       
       // 导航到主页面
@@ -409,13 +467,13 @@ export const CreateAccountPathAPage: React.FC = () => {
         {steps.map((s, index) => (
           <React.Fragment key={s.number}>
             <Step
-              active={step === s.number}
-              completed={step > s.number}
+              $active={step === s.number}
+              $completed={step > s.number}
             >
               {step > s.number ? '✓' : s.number}
             </Step>
             {index < steps.length - 1 && (
-              <StepLine completed={step > s.number} />
+              <StepLine $completed={step > s.number} />
             )}
           </React.Fragment>
         ))}
@@ -431,28 +489,45 @@ export const CreateAccountPathAPage: React.FC = () => {
           
           {mnemonic && (
             <>
-              <MnemonicDisplay>{mnemonic}</MnemonicDisplay>
-              <div style={{ marginBottom: '16px' }}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={mnemonicConfirmed}
-                    onChange={(e) => setMnemonicConfirmed(e.target.checked)}
-                  />
-                  <span style={{ marginLeft: '8px' }}>
-                    我已安全备份助记词
-                  </span>
-                </label>
-              </div>
+              <MnemonicDisplay 
+                mnemonic={mnemonic}
+                showWarning={true}
+                autoHideSeconds={0}
+              />
+              
+              {mnemonicWords.length > 0 && !mnemonicVerified && (
+                <MnemonicVerification
+                  mnemonicWords={mnemonicWords}
+                  onVerified={() => {
+                    setMnemonicVerified(true);
+                    setMnemonicConfirmed(true);
+                  }}
+                  verificationCount={3}
+                />
+              )}
+              
+              {mnemonicVerified && (
+                <div style={{ 
+                  marginBottom: '16px', 
+                  padding: '12px',
+                  background: '#e7f5ff',
+                  borderRadius: '8px',
+                  color: '#2f9e44',
+                  fontSize: '14px'
+                }}>
+                  ✅ 助记词验证通过
+                </div>
+              )}
             </>
           )}
           
-          <Input
+          <PasswordInputField
             label="设置密码"
-            type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(value) => setPassword(value)}
             placeholder="至少8个字符"
+            showRequirements={true}
+            showStrength={true}
           />
           
           <Input
@@ -461,12 +536,17 @@ export const CreateAccountPathAPage: React.FC = () => {
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder="再次输入密码"
+            error={
+              confirmPassword && password !== confirmPassword
+                ? '两次输入的密码不一致'
+                : undefined
+            }
           />
           
           <ButtonGroup>
             <Button
               onClick={handleSetPassword}
-              disabled={isLoading || !mnemonicConfirmed}
+              disabled={isLoading || !mnemonicVerified || !password || password.length < 8 || password !== confirmPassword}
             >
               {isLoading ? <LoadingSpinner /> : '下一步'}
             </Button>
@@ -479,13 +559,26 @@ export const CreateAccountPathAPage: React.FC = () => {
         <Card>
           <Title>📍 预测账户地址</Title>
           <Description>
-            系统正在预测您的智能合约账户地址
+            {isLoading 
+              ? '系统正在预测您的智能合约账户地址，请稍候...'
+              : predictedAddress 
+                ? '账户地址预测完成'
+                : '准备预测账户地址...'}
           </Description>
+          
+          {isLoading && !predictedAddress && (
+            <div style={{ textAlign: 'center', padding: '40px' }}>
+              <LoadingSpinner style={{ margin: '0 auto', display: 'block' }} />
+              <p style={{ marginTop: '16px', color: '#666', fontSize: '14px' }}>
+                正在连接区块链网络，预测账户地址...
+              </p>
+            </div>
+          )}
           
           {predictedAddress && (
             <StatusCard>
               <StatusText>账户地址</StatusText>
-              <MnemonicDisplay>{predictedAddress}</MnemonicDisplay>
+              <AddressDisplay>{predictedAddress}</AddressDisplay>
               <Description>
                 此地址将在账户创建后生效
               </Description>
@@ -493,14 +586,14 @@ export const CreateAccountPathAPage: React.FC = () => {
           )}
           
           <ButtonGroup>
-            <Button onClick={() => setStep(1)} variant="outline">
+            <Button onClick={() => setStep(1)} variant="secondary">
               上一步
             </Button>
             <Button
               onClick={handlePredictAddress}
               disabled={isLoading || !!predictedAddress}
             >
-              {isLoading ? <LoadingSpinner /> : predictedAddress ? '下一步' : '预测地址'}
+              {isLoading ? <LoadingSpinner /> : predictedAddress ? '下一步' : '重新预测'}
             </Button>
           </ButtonGroup>
         </Card>
@@ -528,7 +621,7 @@ export const CreateAccountPathAPage: React.FC = () => {
           {sponsors.map(sponsor => (
             <SponsorCard
               key={sponsor.id}
-              selected={selectedSponsor === sponsor.id}
+              $selected={selectedSponsor === sponsor.id}
               onClick={() => setSelectedSponsor(sponsor.id)}
             >
               <SponsorName>{sponsor.name}</SponsorName>
@@ -544,7 +637,7 @@ export const CreateAccountPathAPage: React.FC = () => {
           ))}
           
           <ButtonGroup>
-            <Button onClick={() => setStep(2)} variant="outline">
+            <Button onClick={() => setStep(2)} variant="secondary">
               上一步
             </Button>
             <Button
@@ -577,7 +670,7 @@ export const CreateAccountPathAPage: React.FC = () => {
             {applicationStatus === 'deployed' && '账户创建成功！'}
           </StatusDescription>
           {predictedAddress && (
-            <MnemonicDisplay>{predictedAddress}</MnemonicDisplay>
+            <AddressDisplay>{predictedAddress}</AddressDisplay>
           )}
         </StatusCard>
       )}
@@ -591,7 +684,7 @@ export const CreateAccountPathAPage: React.FC = () => {
             您的智能合约账户已成功创建，现在可以开始使用了
           </StatusDescription>
           {predictedAddress && (
-            <MnemonicDisplay>{predictedAddress}</MnemonicDisplay>
+            <AddressDisplay>{predictedAddress}</AddressDisplay>
           )}
           <ButtonGroup>
             <Button onClick={handleSuccess}>

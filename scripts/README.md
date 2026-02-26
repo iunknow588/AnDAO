@@ -1,44 +1,90 @@
-# H5 项目脚本说明
+# H5 Scripts
 
-## 📁 脚本说明
+`h5/scripts` 已按职责拆分为两类：
 
-### 本地开发脚本
-- **文件**: `start-local-dev.sh` - 启动本地开发服务器
-- **文件**: `test-local-dev.sh` - 测试本地开发服务器
+## 1) 功能性脚本（functional）
 
-### 验证脚本
-- **文件**: `pwa-verification.ts` - PWA 验证脚本
-- **文件**: `security-audit.ts` - 安全审计脚本
-- **文件**: `testnet-verification.ts` - 测试网验证脚本
+目录：`h5/scripts/functional`
 
-### GitHub 上传脚本
-- **文件**: `../deploy/upload_to_github.sh` - 自动上传 H5 项目到 AnDAO GitHub 仓库
-- **远程仓库**: `git@github.com:iunknow588/AnDAO.git`
-- **使用方法**: `./deploy/upload_to_github.sh [commit-message]`
+- `generate-test-accounts.ts`
+- `generate-test-accounts-simple.ts`
+- `mock-application-indexer.ts`
 
-## 📋 功能说明
+对应命令：
 
-### 自动执行的操作
-1. 检查是否在 h5 目录
-2. 显示 Git 状态
-3. 添加所有修改文件
-4. 提交更改（使用默认或自定义提交信息）
-5. 推送到 git@github.com:iunknow588/AnDAO.git
+- `npm run test:accounts`
+- `npm run test:accounts:simple`
+- `npm run mock:indexer`
 
-### 默认提交信息包含
-- 代码分析与注释完善
-- 代码质量改进
-- 功能实现状态
-- 技术栈说明
+## 2) 管理性脚本（management）
 
-## ⚠️ 注意事项
+目录：`h5/scripts/management`
 
-1. 确保 SSH 密钥已配置
-2. 确保有推送到 iunknow588/AnDAO 的权限
-3. 脚本会自动初始化 Git 仓库（如果尚未初始化）
-4. 默认推送到 main 分支
+- `upload_to_github.sh`
+- `check-deployment.sh`
+- `deploy-github-and-vercel.sh`
+- `pwa-verification.ts`
+- `security-audit.ts`
+- `testnet-verification.ts`
+- `start-local-dev.sh`
+- `test-local-dev.sh`
+- `bridge-connectivity-check.ts`
 
-## 🔗 远程仓库
+对应命令：
 
-- 仓库地址: git@github.com:iunknow588/AnDAO.git
-- 分支: main
+- `npm run pwa:verify`
+- `npm run security:check`
+- `npm run testnet:verify`
+- `npm run deploy:github`
+- `npm run deploy:check`
+- `npm run deploy:all`
+- `npm run dev:local:start`
+- `npm run dev:local:test`
+- `npm run bridge:check`
+
+常用执行方式：
+
+- `bash ./scripts/management/upload_to_github.sh "chore: update h5"`
+- `bash ./scripts/management/check-deployment.sh`
+- `bash ./scripts/management/deploy-github-and-vercel.sh "chore: deploy h5"`
+
+## 🧪 Sponsor 索引 Mock 联调
+
+### 启动服务
+```bash
+npm run mock:indexer
+```
+
+默认监听：`http://127.0.0.1:8787`
+
+可选环境变量：
+- `INDEXER_HOST`（默认 `127.0.0.1`）
+- `INDEXER_PORT`（默认 `8787`）
+
+### 前端配置
+在 `h5/.env.local` 中配置：
+```bash
+VITE_APPLICATION_INDEXER_URL=http://127.0.0.1:8787/api/applications/by-sponsor
+```
+
+### 接口契约
+- `GET /health`
+- `GET /api/applications/by-sponsor?chainId=5003&sponsorAddress=0x...`
+
+返回示例：
+```json
+{
+  "items": [
+    {
+      "applicationId": "app-mock-001",
+      "status": 1,
+      "chainId": "5003"
+    }
+  ]
+}
+```
+
+### 快速验证
+```bash
+curl "http://127.0.0.1:8787/api/applications/by-sponsor?chainId=5003&sponsorAddress=0x1234567890123456789012345678901234567890"
+```

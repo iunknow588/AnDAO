@@ -12,16 +12,40 @@ import { AccountManager } from '@/services/AccountManager';
 import { signatureService } from '@/services/SignatureService';
 import { keyManagerService } from '@/services/KeyManagerService';
 import { chainService } from '@/services/ChainService';
-import { getChainConfig, getChainConfigByChainId } from '@/config/chains';
-import { SupportedChain } from '@/types';
+import { getChainConfigByChainId } from '@/config/chains';
+import type { TypedData } from '@/services/SignatureService';
 import type { Address } from 'viem';
+
+type ProviderEventHandler = (...args: unknown[]) => void;
 
 export interface EthereumProvider {
   isAnDaoWallet?: boolean;
-  request(args: { method: string; params?: any[] }): Promise<any>;
-  on(event: string, handler: (...args: any[]) => void): void;
-  removeListener(event: string, handler: (...args: any[]) => void): void;
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+  on(event: string, handler: ProviderEventHandler): void;
+  removeListener(event: string, handler: ProviderEventHandler): void;
 }
+
+type SendTransactionParams = {
+  from?: string;
+  to: string;
+  value?: string;
+  data?: string;
+  gas?: string;
+  gasPrice?: string;
+};
+
+type AddEthereumChainParams = {
+  chainId: string;
+  chainName: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  rpcUrls: string[];
+  blockExplorerUrls?: string[];
+  iconUrls?: string[];
+};
 
 /**
  * AnDaoWallet Ethereum Provider
@@ -32,17 +56,32 @@ export class AnDaoWalletProvider implements EthereumProvider {
   isAnDaoWallet = true;
   private accountStore: AccountStore;
   private transactionRelayer: TransactionRelayer;
-  private accountManager: AccountManager;
-  private listeners: Map<string, Set<Function>> = new Map();
+  private listeners: Map<string, Set<ProviderEventHandler>> = new Map();
 
   constructor(
     accountStore: AccountStore,
     transactionRelayer: TransactionRelayer,
-    accountManager: AccountManager
+    _accountManager: AccountManager
   ) {
     this.accountStore = accountStore;
     this.transactionRelayer = transactionRelayer;
-    this.accountManager = accountManager;
+  }
+
+  /**
+   * 获取当前激活链的配置（优先内置链，其次自定义链）
+   */
+  private getActiveChainConfig() {
+    return (
+      getChainConfigByChainId(this.accountStore.currentChainId) ||
+      chainService.getCustomChain(this.accountStore.currentChainId)
+    );
+  }
+
+  /**
+   * 获取当前激活链的账户（按 chainId 精确匹配）
+   */
+  private getActiveAccount() {
+    return this.accountStore.getAccount(this.accountStore.currentChainId);
   }
 
   /**
@@ -51,7 +90,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
    * 对于需要用户确认的请求，会添加到 InteractionStore 队列中
    * 等待用户批准或拒绝
    */
-  async request(args: { method: string; params?: any[] }): Promise<any> {
+  async request(args: { method: string; params?: unknown[] }): Promise<unknown> {
     const { method, params = [] } = args;
     
     // 获取 DApp 来源（如果可用）
@@ -71,7 +110,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
     if (requiresConfirmation.includes(method)) {
       // 添加到交互队列
       const requestId = interactionStore.addRequest(
-        method as any,
+        method as Parameters<typeof interactionStore.addRequest>[0],
         origin,
         params
       );
@@ -101,64 +140,83 @@ export class AnDaoWalletProvider implements EthereumProvider {
   private async waitForConfirmation(
     requestId: string,
     method: string,
-    params: any[]
-  ): Promise<any> {
+    params: unknown[]
+  ): Promise<unknown> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      let cleanup = () => {};
+
+      const settle = (handler: (value: unknown) => void, value: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        handler(value);
+      };
+
       const checkRequest = () => {
+        if (settled) return;
         const request = interactionStore.getRequest(requestId);
         if (!request) {
-          reject(new Error('Request not found'));
+          settle(reject as (value: unknown) => void, new Error('Request not found'));
           return;
         }
 
         if (request.status === 'approved') {
           // 请求已批准，执行实际操作
           this.executeApprovedRequest(method, params, request.result)
-            .then(resolve)
-            .catch(reject);
+            .then((result) => settle(resolve as (value: unknown) => void, result))
+            .catch((error) => settle(reject as (value: unknown) => void, error));
         } else if (request.status === 'rejected') {
           // 请求被拒绝
-          reject(new Error(request.error || 'User rejected the request'));
+          settle(
+            reject as (value: unknown) => void,
+            new Error(request.error || 'User rejected the request')
+          );
         } else if (request.status === 'cancelled') {
           // 请求被取消
-          reject(new Error('Request was cancelled'));
-        } else {
-          // 仍在等待，继续检查
-          setTimeout(checkRequest, 100);
+          settle(reject as (value: unknown) => void, new Error('Request was cancelled'));
         }
       };
 
       // 监听事件
-      const handleApproved = (event: CustomEvent) => {
-        if (event.detail.request.id === requestId) {
-          this.executeApprovedRequest(method, params, event.detail.request.result)
-            .then(resolve)
-            .catch(reject);
+      const handleApproved = (event: Event) => {
+        if (settled) return;
+        const detail = (event as CustomEvent).detail;
+        if (detail?.request?.id === requestId) {
+          this.executeApprovedRequest(method, params, detail.request.result)
+            .then((result) => settle(resolve as (value: unknown) => void, result))
+            .catch((error) => settle(reject as (value: unknown) => void, error));
         }
       };
 
-      const handleRejected = (event: CustomEvent) => {
-        if (event.detail.request.id === requestId) {
-          reject(new Error(event.detail.request.error || 'User rejected the request'));
+      const handleRejected = (event: Event) => {
+        if (settled) return;
+        const detail = (event as CustomEvent).detail;
+        if (detail?.request?.id === requestId) {
+          settle(
+            reject as (value: unknown) => void,
+            new Error(detail.request.error || 'User rejected the request')
+          );
         }
+      };
+
+      const pollTimer = window.setInterval(checkRequest, 100);
+      const timeoutTimer = window.setTimeout(() => {
+        settle(reject as (value: unknown) => void, new Error('Request confirmation timeout'));
+      }, 5 * 60 * 1000);
+
+      cleanup = () => {
+        window.clearInterval(pollTimer);
+        window.clearTimeout(timeoutTimer);
+        window.removeEventListener('interaction:approved', handleApproved as EventListener);
+        window.removeEventListener('interaction:rejected', handleRejected as EventListener);
       };
 
       window.addEventListener('interaction:approved', handleApproved as EventListener);
       window.addEventListener('interaction:rejected', handleRejected as EventListener);
 
-      // 开始检查
+      // 立即检查一次，避免等待首个轮询周期
       checkRequest();
-
-      // 清理监听器（在 Promise 完成后）
-      Promise.resolve()
-        .then(() => {
-          window.removeEventListener('interaction:approved', handleApproved as EventListener);
-          window.removeEventListener('interaction:rejected', handleRejected as EventListener);
-        })
-        .catch(() => {
-          window.removeEventListener('interaction:approved', handleApproved as EventListener);
-          window.removeEventListener('interaction:rejected', handleRejected as EventListener);
-        });
     });
   }
 
@@ -167,9 +225,9 @@ export class AnDaoWalletProvider implements EthereumProvider {
    */
   private async executeApprovedRequest(
     method: string,
-    params: any[],
-    preApprovedResult?: any
-  ): Promise<any> {
+    params: unknown[],
+    preApprovedResult?: unknown
+  ): Promise<unknown> {
     // 如果已经有预批准的结果，直接返回
     if (preApprovedResult !== undefined) {
       return preApprovedResult;
@@ -178,18 +236,24 @@ export class AnDaoWalletProvider implements EthereumProvider {
     // 否则执行实际操作
     switch (method) {
       case 'eth_sendTransaction':
-        return this.sendTransaction(params[0]);
+        return this.sendTransaction(this.parseTransactionParam(params[0]));
       case 'eth_sign':
-        return this.sign(params[0], params[1]);
+        return this.sign(this.parseStringParam(params[0], 'eth_sign.address'), this.parseStringParam(params[1], 'eth_sign.message'));
       case 'personal_sign':
-        return this.personalSign(params[0], params[1]);
+        return this.personalSign(
+          this.parseStringParam(params[0], 'personal_sign.message'),
+          this.parseStringParam(params[1], 'personal_sign.address')
+        );
       case 'eth_signTypedData':
       case 'eth_signTypedData_v4':
-        return this.signTypedData(params[0], params[1]);
+        return this.signTypedData(
+          this.parseStringParam(params[0], 'eth_signTypedData.address'),
+          this.parseTypedDataParam(params[1])
+        );
       case 'wallet_switchEthereumChain':
-        return this.switchChain(params[0]);
+        return this.switchChain(this.parseSwitchChainParam(params[0]));
       case 'wallet_addEthereumChain':
-        return this.addChain(params[0]);
+        return this.addChain(this.parseAddChainParam(params[0]));
       default:
         throw new Error(`Unsupported method: ${method}`);
     }
@@ -199,8 +263,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
    * 请求账户连接
    */
   private async requestAccounts(): Promise<string[]> {
-    const currentChain = this.accountStore.currentChain || SupportedChain.MANTLE;
-    const account = this.accountStore.getAccount(currentChain);
+    const account = this.getActiveAccount();
     
     if (!account) {
       throw new Error('No account available. Please create or import an account first.');
@@ -213,8 +276,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
    * 获取当前账户列表
    */
   private async getAccounts(): Promise<string[]> {
-    const currentChain = this.accountStore.currentChain || SupportedChain.MANTLE;
-    const account = this.accountStore.getAccount(currentChain);
+    const account = this.getActiveAccount();
     
     return account ? [account.address] : [];
   }
@@ -223,31 +285,23 @@ export class AnDaoWalletProvider implements EthereumProvider {
    * 获取当前链 ID
    */
   private async getChainId(): Promise<string> {
-    const currentChain = this.accountStore.currentChain || SupportedChain.MANTLE;
-    const chainConfig = getChainConfig(currentChain);
-    return `0x${chainConfig.chainId.toString(16)}`;
+    return `0x${this.accountStore.currentChainId.toString(16)}`;
   }
 
   /**
    * 发送交易（转换为 UserOperation）
    */
-  private async sendTransaction(tx: {
-    from?: string;
-    to: string;
-    value?: string;
-    data?: string;
-    gas?: string;
-    gasPrice?: string;
-  }): Promise<string> {
-    const currentChain = this.accountStore.currentChain || SupportedChain.MANTLE;
-    const account = this.accountStore.getAccount(currentChain);
+  private async sendTransaction(tx: SendTransactionParams): Promise<string> {
+    const account = this.getActiveAccount();
     
     if (!account) {
       throw new Error('No account available');
     }
 
-    const chainConfig = getChainConfig(currentChain);
-    const value = tx.value ? BigInt(tx.value) : 0n;
+    const chainConfig = this.getActiveChainConfig();
+    if (!chainConfig) {
+      throw new Error(`Current chain ${this.accountStore.currentChainId} is not configured`);
+    }
     const data = tx.data || '0x';
 
     // 获取 owner 的私钥（用于签名 UserOperation）
@@ -296,8 +350,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
    * 建议 DApp 使用 personal_sign 或 eth_signTypedData
    */
   private async sign(address: string, message: string): Promise<string> {
-    const currentChain = this.accountStore.currentChain || SupportedChain.MANTLE;
-    const account = this.accountStore.getAccount(currentChain);
+    const account = this.getActiveAccount();
     
     if (!account) {
       throw new Error('No account available');
@@ -323,8 +376,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
    * EIP-191 标准个人消息签名
    */
   private async personalSign(message: string, address: string): Promise<string> {
-    const currentChain = this.accountStore.currentChain || SupportedChain.MANTLE;
-    const account = this.accountStore.getAccount(currentChain);
+    const account = this.getActiveAccount();
     
     if (!account) {
       throw new Error('No account available');
@@ -348,9 +400,8 @@ export class AnDaoWalletProvider implements EthereumProvider {
    * 
    * 最安全和推荐的结构化数据签名方式
    */
-  private async signTypedData(address: string, typedData: any): Promise<string> {
-    const currentChain = this.accountStore.currentChain || SupportedChain.MANTLE;
-    const account = this.accountStore.getAccount(currentChain);
+  private async signTypedData(address: string, typedData: TypedData): Promise<string> {
+    const account = this.getActiveAccount();
     
     if (!account) {
       throw new Error('No account available');
@@ -445,6 +496,19 @@ export class AnDaoWalletProvider implements EthereumProvider {
    */
   private async requestPasswordFromUI(ownerAddress: Address): Promise<string | null> {
     return new Promise((resolve) => {
+      let timeoutId: number | null = null;
+      let settled = false;
+      const settle = (value: string | null) => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+        window.removeEventListener('wallet:password-input', handlePasswordInput as EventListener);
+        window.removeEventListener('wallet:password-cancel', handlePasswordCancel as EventListener);
+        resolve(value);
+      };
+
       // 触发密码输入事件
       const requestId = `password_request_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
@@ -461,16 +525,13 @@ export class AnDaoWalletProvider implements EthereumProvider {
       // 监听密码输入完成事件
       const handlePasswordInput = (event: CustomEvent) => {
         if (event.detail.requestId === requestId) {
-          window.removeEventListener('wallet:password-input', handlePasswordInput as EventListener);
-          resolve(event.detail.password || null);
+          settle(event.detail.password || null);
         }
       };
 
       const handlePasswordCancel = (event: CustomEvent) => {
         if (event.detail.requestId === requestId) {
-          window.removeEventListener('wallet:password-input', handlePasswordInput as EventListener);
-          window.removeEventListener('wallet:password-cancel', handlePasswordCancel as EventListener);
-          resolve(null);
+          settle(null);
         }
       };
 
@@ -478,10 +539,8 @@ export class AnDaoWalletProvider implements EthereumProvider {
       window.addEventListener('wallet:password-cancel', handlePasswordCancel as EventListener);
 
       // 超时处理（30秒）
-      setTimeout(() => {
-        window.removeEventListener('wallet:password-input', handlePasswordInput as EventListener);
-        window.removeEventListener('wallet:password-cancel', handlePasswordCancel as EventListener);
-        resolve(null);
+      timeoutId = window.setTimeout(() => {
+        settle(null);
       }, 30000);
     });
   }
@@ -510,34 +569,20 @@ export class AnDaoWalletProvider implements EthereumProvider {
     // 检查链是否存在（内置链或自定义链）
     const chainConfig = getChainConfigByChainId(chainId) || chainService.getCustomChain(chainId);
     
-    if (!chainConfig) {
-      // 根据 EIP-3326，如果链不存在，应该返回 4902 错误
-      const error = new Error(`Unrecognized chain ID "${chainId}". Try adding the chain using wallet_addEthereumChain first.`);
-      (error as any).code = 4902;
-      throw error;
-    }
-
-    // 切换链
-    // 注意：这里需要将 chainId 转换为 SupportedChain 枚举
-    // 如果是自定义链，可能需要特殊处理
-    try {
-      // 尝试作为内置链切换
-      const supportedChain = Object.values(SupportedChain).find(
-        (chain) => {
-          const config = getChainConfig(chain as SupportedChain);
-          return config.chainId === chainId;
-        }
-      ) as SupportedChain | undefined;
-
-      if (supportedChain) {
-        this.accountStore.setCurrentChain(supportedChain);
-      } else {
-        // 自定义链：需要特殊处理
-        // 这里我们更新 AccountStore 以支持自定义链
-        // 注意：AccountStore 当前只支持 SupportedChain 枚举
-        // 实际实现中可能需要扩展 AccountStore 以支持任意 chainId
-        console.warn(`Switching to custom chain ${chainId}, but AccountStore may not fully support it`);
+      if (!chainConfig) {
+        // 根据 EIP-3326，如果链不存在，应该返回 4902 错误
+        const error = Object.assign(
+          new Error(
+            `Unrecognized chain ID "${chainId}". Try adding the chain using wallet_addEthereumChain first.`
+          ),
+          { code: 4902 }
+        );
+        throw error;
       }
+
+    try {
+      // 统一按 chainId 切换，避免主网/测试网在同一链枚举下被混淆
+      this.accountStore.setCurrentChain(chainId);
 
       // 触发链切换事件
       this.emit('chainChanged', params.chainId);
@@ -559,18 +604,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
    * 
    * @throws {Error} 如果参数无效或添加失败
    */
-  private async addChain(params: {
-    chainId: string;
-    chainName: string;
-    nativeCurrency: {
-      name: string;
-      symbol: string;
-      decimals: number;
-    };
-    rpcUrls: string[];
-    blockExplorerUrls?: string[];
-    iconUrls?: string[];
-  }): Promise<null> {
+  private async addChain(params: AddEthereumChainParams): Promise<null> {
     try {
       // 使用 ChainService 添加链
       await chainService.addChain(params);
@@ -582,8 +616,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
     } catch (error) {
       // 根据 EIP-3085，如果链已存在，应该返回特定错误
       if (error instanceof Error && error.message.includes('already exists')) {
-        const existingError = new Error('Chain already exists');
-        (existingError as any).code = 4902;
+        const existingError = Object.assign(new Error('Chain already exists'), { code: 4902 });
         throw existingError;
       }
       throw error;
@@ -593,7 +626,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
   /**
    * 事件监听
    */
-  on(event: string, handler: Function): void {
+  on(event: string, handler: ProviderEventHandler): void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
@@ -603,7 +636,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
   /**
    * 移除事件监听
    */
-  removeListener(event: string, handler: Function): void {
+  removeListener(event: string, handler: ProviderEventHandler): void {
     const handlers = this.listeners.get(event);
     if (handlers) {
       handlers.delete(handler);
@@ -613,7 +646,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
   /**
    * 触发事件
    */
-  private emit(event: string, ...args: any[]): void {
+  private emit(event: string, ...args: unknown[]): void {
     const handlers = this.listeners.get(event);
     if (handlers) {
       handlers.forEach((handler) => {
@@ -624,6 +657,75 @@ export class AnDaoWalletProvider implements EthereumProvider {
         }
       });
     }
+  }
+
+  private parseStringParam(value: unknown, field: string): string {
+    if (typeof value !== 'string') {
+      throw new Error(`Invalid parameter: ${field} must be a string`);
+    }
+    return value;
+  }
+
+  private parseTransactionParam(value: unknown): SendTransactionParams {
+    if (!value || typeof value !== 'object') {
+      throw new Error('Invalid parameter: transaction object is required');
+    }
+    const candidate = value as Partial<SendTransactionParams>;
+    if (typeof candidate.to !== 'string' || candidate.to.length === 0) {
+      throw new Error('Invalid parameter: transaction.to must be a non-empty string');
+    }
+    return {
+      from: typeof candidate.from === 'string' ? candidate.from : undefined,
+      to: candidate.to,
+      value: typeof candidate.value === 'string' ? candidate.value : undefined,
+      data: typeof candidate.data === 'string' ? candidate.data : undefined,
+      gas: typeof candidate.gas === 'string' ? candidate.gas : undefined,
+      gasPrice: typeof candidate.gasPrice === 'string' ? candidate.gasPrice : undefined,
+    };
+  }
+
+  private parseTypedDataParam(value: unknown): TypedData {
+    if (!value || typeof value !== 'object') {
+      throw new Error('Invalid parameter: typedData must be an object');
+    }
+    return value as TypedData;
+  }
+
+  private parseSwitchChainParam(value: unknown): { chainId: string } {
+    if (!value || typeof value !== 'object' || typeof (value as { chainId?: unknown }).chainId !== 'string') {
+      throw new Error('Invalid parameter: wallet_switchEthereumChain requires { chainId: string }');
+    }
+    return { chainId: (value as { chainId: string }).chainId };
+  }
+
+  private parseAddChainParam(value: unknown): AddEthereumChainParams {
+    if (!value || typeof value !== 'object') {
+      throw new Error('Invalid parameter: wallet_addEthereumChain requires an object');
+    }
+    const candidate = value as Partial<AddEthereumChainParams>;
+    if (
+      typeof candidate.chainId !== 'string' ||
+      typeof candidate.chainName !== 'string' ||
+      !candidate.nativeCurrency ||
+      typeof candidate.nativeCurrency.name !== 'string' ||
+      typeof candidate.nativeCurrency.symbol !== 'string' ||
+      typeof candidate.nativeCurrency.decimals !== 'number' ||
+      !Array.isArray(candidate.rpcUrls)
+    ) {
+      throw new Error('Invalid parameter: wallet_addEthereumChain payload is malformed');
+    }
+    return {
+      chainId: candidate.chainId,
+      chainName: candidate.chainName,
+      nativeCurrency: candidate.nativeCurrency,
+      rpcUrls: candidate.rpcUrls.filter((url): url is string => typeof url === 'string'),
+      blockExplorerUrls: Array.isArray(candidate.blockExplorerUrls)
+        ? candidate.blockExplorerUrls.filter((url): url is string => typeof url === 'string')
+        : undefined,
+      iconUrls: Array.isArray(candidate.iconUrls)
+        ? candidate.iconUrls.filter((url): url is string => typeof url === 'string')
+        : undefined,
+    };
   }
 }
 
@@ -651,7 +753,8 @@ export class WindowProviderAdapter {
 
     // 注册到 window.ethereum
     if (typeof window !== 'undefined') {
-      (window as any).ethereum = this.provider;
+      const walletWindow = window as Window & { ethereum?: EthereumProvider };
+      walletWindow.ethereum = this.provider;
       
       // 支持 EIP-6963 钱包发现
       this.registerEIP6963();
@@ -663,7 +766,8 @@ export class WindowProviderAdapter {
    */
   unregisterProvider(): void {
     if (typeof window !== 'undefined') {
-      delete (window as any).ethereum;
+      const walletWindow = window as Window & { ethereum?: EthereumProvider };
+      delete walletWindow.ethereum;
     }
     this.provider = null;
   }
@@ -694,4 +798,3 @@ export class WindowProviderAdapter {
     });
   }
 }
-

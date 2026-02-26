@@ -6,7 +6,7 @@
  * @module types/sponsor
  */
 
-import { Address, Hash } from 'viem';
+import { Address } from 'viem';
 import { StorageProviderType, StorageProviderConfig } from '@/interfaces/IStorageProvider';
 
 /**
@@ -128,7 +128,7 @@ export interface ApplicationParams {
    * 赞助商ID
    */
   sponsorId: string;
-  
+
   /**
    * 链ID
    */
@@ -142,7 +142,7 @@ export interface ApplicationParams {
   /**
    * 申请详情（可选，用于存储）
    */
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 /**
@@ -178,6 +178,13 @@ export interface Application {
    * 赞助商ID
    */
   sponsorId: string;
+
+  /**
+   * 赞助商地址（可选）
+   *
+   * 用于精确匹配赞助商，不依赖 sponsorId 编码规则。
+   */
+  sponsorAddress?: Address;
   
   /**
    * 链ID
@@ -297,6 +304,20 @@ export interface SponsorRegistrationParams {
    * 存储配置（可选）
    */
   storageConfig?: StorageProviderConfig;
+
+  /**
+   * 链ID（可选）
+   *
+   * 未提供时由调用方上下文决定（例如当前激活链）。
+   */
+  chainId?: number;
+
+  /**
+   * Gas 账户解锁密码（可选）
+   *
+   * 提供时可用于执行真实链上注册；未提供时仅执行本地注册。
+   */
+  password?: string;
 }
 
 /**

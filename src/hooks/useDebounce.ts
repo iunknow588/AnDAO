@@ -6,6 +6,8 @@
 
 import { useState, useEffect } from 'react';
 
+type AnyFn = (...args: unknown[]) => unknown;
+
 /**
  * 防抖值 Hook
  * 
@@ -36,7 +38,7 @@ export function useDebounce<T>(value: T, delay: number): T {
  * @param delay 延迟时间（毫秒）
  * @returns 防抖后的回调函数
  */
-export function useDebouncedCallback<T extends (...args: any[]) => any>(
+export function useDebouncedCallback<T extends AnyFn>(
   callback: T,
   delay: number
 ): T {
@@ -54,4 +56,3 @@ export function useDebouncedCallback<T extends (...args: any[]) => any>(
 
   return debouncedCallback;
 }
-

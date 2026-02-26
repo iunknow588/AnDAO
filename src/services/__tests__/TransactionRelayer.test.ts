@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TransactionRelayer } from '../TransactionRelayer';
 import { bundlerClient } from '../BundlerClient';
-import { UserOperation, Transaction } from '@/types';
+import { Transaction } from '@/types';
 import type { Address, Hash } from 'viem';
 
 // Mock bundler client
@@ -66,7 +66,10 @@ vi.mock('viem', () => ({
 }));
 
 // 补充 BundlerClient 上的 ensureBundler 方法，避免 Gas 估算降级路径报错
-vi.mocked(bundlerClient as any).ensureBundler = vi.fn().mockResolvedValue(undefined);
+const mockedBundlerClient = vi.mocked(bundlerClient) as typeof bundlerClient & {
+  ensureBundler: () => Promise<void>;
+};
+mockedBundlerClient.ensureBundler = vi.fn().mockResolvedValue(undefined);
 
 describe('TransactionRelayer', () => {
   let transactionRelayer: TransactionRelayer;
@@ -172,4 +175,3 @@ describe('TransactionRelayer', () => {
     });
   });
 });
-

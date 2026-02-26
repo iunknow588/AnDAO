@@ -14,19 +14,22 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
-import { AccountManager } from '@/services/AccountManager';
-import { KeyManagerService } from '@/services/KeyManagerService';
+import { accountManager } from '@/services/AccountManager';
+import { keyManagerService } from '@/services/KeyManagerService';
 import { sponsorService } from '@/services/SponsorService';
 import { Sponsor, Application, ApplicationStatus } from '@/types/sponsor';
-import { AccountCreationPath, UserType, AccountStatus } from '@/types';
+import { AccountInfo } from '@/types';
 import { Address, formatEther, parseEther } from 'viem';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Input } from '@/components/Input';
+import { PasswordInputField } from '@/components/PasswordInput/PasswordInputField';
 import { ErrorHandler } from '@/utils/errors';
+import { normalizePrivateKeyInput, validatePasswordPair } from '@/utils/pathFlowValidation';
+import { trimInputValue } from '@/utils/formValidation';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
 import { useStore } from '@/stores';
 import { createPublicClient, http } from 'viem';
-import { getChainConfigByChainId } from '@/config/chains';
 
 const Container = styled.div`
   max-width: 800px;
@@ -42,7 +45,7 @@ const StepIndicator = styled.div`
   gap: 16px;
 `;
 
-const Step = styled.div<{ active?: boolean; completed?: boolean }>`
+const Step = styled.div<{ $active?: boolean; $completed?: boolean }>`
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -51,17 +54,17 @@ const Step = styled.div<{ active?: boolean; completed?: boolean }>`
   justify-content: center;
   font-weight: 600;
   background: ${props => 
-    props.completed ? '#4c6ef5' : 
-    props.active ? '#4c6ef5' : '#e9ecef'};
+    props.$completed ? '#4c6ef5' : 
+    props.$active ? '#4c6ef5' : '#e9ecef'};
   color: ${props => 
-    props.completed || props.active ? '#ffffff' : '#666'};
+    props.$completed || props.$active ? '#ffffff' : '#666'};
   transition: all 0.3s ease;
 `;
 
-const StepLine = styled.div<{ completed?: boolean }>`
+const StepLine = styled.div<{ $completed?: boolean }>`
   width: 60px;
   height: 2px;
-  background: ${props => props.completed ? '#4c6ef5' : '#e9ecef'};
+  background: ${props => props.$completed ? '#4c6ef5' : '#e9ecef'};
   margin-top: 19px;
 `;
 
@@ -206,13 +209,13 @@ const Tabs = styled.div`
   border-bottom: 2px solid #e9ecef;
 `;
 
-const Tab = styled.button<{ active?: boolean }>`
+const Tab = styled.button<{ $active?: boolean }>`
   padding: 12px 24px;
   background: none;
   border: none;
-  border-bottom: 2px solid ${props => props.active ? '#4c6ef5' : 'transparent'};
-  color: ${props => props.active ? '#4c6ef5' : '#666'};
-  font-weight: ${props => props.active ? '600' : '400'};
+  border-bottom: 2px solid ${props => props.$active ? '#4c6ef5' : 'transparent'};
+  color: ${props => props.$active ? '#4c6ef5' : '#666'};
+  font-weight: ${props => props.$active ? '600' : '400'};
   cursor: pointer;
   transition: all 0.3s ease;
   
@@ -247,15 +250,15 @@ export const CreateAccountPathBPage: React.FC = () => {
   const [accountAddress, setAccountAddress] = useState<Address | null>(null);
   const [acknowledgeRisk, setAcknowledgeRisk] = useState(false);
   
-  const accountManager = new AccountManager();
-  const keyManagerService = new KeyManagerService();
-  const chainId = accountStore.currentChain?.chainId || 5001;
+  const chainId = accountStore.currentChainId;
   
   // 步骤1: 加载EOA余额
   useEffect(() => {
     if (step === 2 && eoaAddress) {
       loadEOABalance();
     }
+    // 仅在进入步骤2且地址可用时刷新余额
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, eoaAddress]);
   
   // 步骤3: 加载赞助商列表
@@ -264,7 +267,7 @@ export const CreateAccountPathBPage: React.FC = () => {
       sponsorService.getRecommendedSponsors()
         .then(setSponsors)
         .catch(error => {
-          ErrorHandler.handleError(error);
+          ErrorHandler.handleAndShow(error);
         });
     }
   }, [step, gasPaymentMethod]);
@@ -300,19 +303,35 @@ export const CreateAccountPathBPage: React.FC = () => {
     if (!eoaAddress) return;
     
     try {
-      const chainConfig = getChainConfigByChainId(chainId);
-      if (!chainConfig) {
-        throw new Error(`Unsupported chain: ${chainId}`);
-      }
+      console.log('[CreateAccountPathBPage] 加载 EOA 余额:', {
+        eoaAddress,
+        chainId,
+      });
+
+      const chainConfig = requireChainConfig(chainId, ['rpcUrl']);
       
+      console.log('[CreateAccountPathBPage] 使用链配置:', {
+        chainId: chainConfig.chainId,
+        name: chainConfig.name,
+        rpcUrl: chainConfig.rpcUrl,
+      });
+
       const publicClient = createPublicClient({
         transport: http(chainConfig.rpcUrl),
       });
       
+      console.log('[CreateAccountPathBPage] 从 RPC 查询余额:', chainConfig.rpcUrl);
       const balance = await publicClient.getBalance({ address: eoaAddress });
+      
+      console.log('[CreateAccountPathBPage] 余额查询结果:', {
+        balanceWei: balance.toString(),
+        balanceEther: formatEther(balance),
+      });
+      
       setEoaBalance(balance);
     } catch (error) {
-      ErrorHandler.handleError(error);
+      console.error('[CreateAccountPathBPage] 加载 EOA 余额失败:', error);
+      ErrorHandler.handleAndShow(error);
     }
   };
   
@@ -322,30 +341,34 @@ export const CreateAccountPathBPage: React.FC = () => {
   const handleEOASetup = async () => {
     try {
       setIsLoading(true);
+      const passwordValue = trimInputValue(password);
+      const confirmPasswordValue = trimInputValue(confirmPassword);
       let privateKey: `0x${string}`;
+      let resolvedEoaAddress: Address;
       
       if (eoaMethod === 'create') {
         // 创建新EOA
         const { address, privateKey: pk } = await keyManagerService.generatePrivateKey();
         privateKey = pk;
-        setEoaAddress(address);
+        resolvedEoaAddress = address;
       } else {
         // 导入现有EOA
         if (eoaPrivateKey) {
           // 从私钥导入
-          if (!eoaPrivateKey.startsWith('0x')) {
-            setEoaPrivateKey('0x' + eoaPrivateKey);
+          const normalizedPrivateKey = normalizePrivateKeyInput(eoaPrivateKey);
+          if (normalizedPrivateKey !== eoaPrivateKey) {
+            setEoaPrivateKey(normalizedPrivateKey);
           }
-          privateKey = eoaPrivateKey as `0x${string}`;
+          privateKey = normalizedPrivateKey;
           const address = keyManagerService.getAddressFromPrivateKey(privateKey);
-          setEoaAddress(address);
+          resolvedEoaAddress = address;
         } else if (eoaMnemonic) {
           // 从助记词恢复（使用标准 BIP-39 流程）
           const { address, privateKey: recovered } = await keyManagerService.recoverFromMnemonic(
             eoaMnemonic
           );
           privateKey = recovered;
-          setEoaAddress(address);
+          resolvedEoaAddress = address;
         } else {
           ErrorHandler.showError('请输入私钥或助记词');
           return;
@@ -353,20 +376,17 @@ export const CreateAccountPathBPage: React.FC = () => {
       }
       
       // 保存EOA私钥（加密存储）
-      if (!password || password.length < 8) {
-        ErrorHandler.showError('密码至少需要8个字符');
+      const passwordError = validatePasswordPair(passwordValue, confirmPasswordValue);
+      if (passwordError) {
+        ErrorHandler.showError(passwordError);
         return;
       }
       
-      if (password !== confirmPassword) {
-        ErrorHandler.showError('两次输入的密码不一致');
-        return;
-      }
-      
-      await keyManagerService.savePrivateKey(eoaAddress!, privateKey, password);
+      setEoaAddress(resolvedEoaAddress);
+      await keyManagerService.savePrivateKey(resolvedEoaAddress, privateKey, passwordValue);
       setStep(2);
     } catch (error) {
-      ErrorHandler.handleError(error);
+      ErrorHandler.handleAndShow(error);
     } finally {
       setIsLoading(false);
     }
@@ -378,11 +398,12 @@ export const CreateAccountPathBPage: React.FC = () => {
   const handleGenerateSmartAccountKey = async () => {
     try {
       setIsLoading(true);
+      const passwordValue = trimInputValue(password);
       const { address, privateKey } = await keyManagerService.generatePrivateKey();
       setOwnerAddress(address);
       
       // 保存智能账户私钥
-      await keyManagerService.savePrivateKey(address, privateKey, password);
+      await keyManagerService.savePrivateKey(address, privateKey, passwordValue);
       
       // 预测智能账户地址
       const predicted = await accountManager.predictAccountAddress(address, chainId);
@@ -390,7 +411,7 @@ export const CreateAccountPathBPage: React.FC = () => {
       
       setStep(3);
     } catch (error) {
-      ErrorHandler.handleError(error);
+      ErrorHandler.handleAndShow(error);
     } finally {
       setIsLoading(false);
     }
@@ -416,7 +437,8 @@ export const CreateAccountPathBPage: React.FC = () => {
         }
         
         // 获取EOA私钥
-        const eoaPk = await keyManagerService.getPrivateKey(eoaAddress, password);
+        const passwordValue = trimInputValue(password);
+        const eoaPk = await keyManagerService.getPrivateKey(eoaAddress, passwordValue);
         if (!eoaPk) {
           ErrorHandler.showError('无法获取EOA私钥，请检查密码');
           return;
@@ -450,7 +472,7 @@ export const CreateAccountPathBPage: React.FC = () => {
         setStep(4); // 等待审核
       }
     } catch (error) {
-      ErrorHandler.handleError(error);
+      ErrorHandler.handleAndShow(error);
     } finally {
       setIsLoading(false);
     }
@@ -462,22 +484,18 @@ export const CreateAccountPathBPage: React.FC = () => {
   const handleSuccess = () => {
     if (accountAddress || predictedAddress) {
       const finalAddress = accountAddress || predictedAddress!;
-      const accountInfo = {
+      const accountInfo: AccountInfo = {
         address: finalAddress,
         chainId,
         owner: ownerAddress!,
-        eoaAddress: eoaAddress!,
-        userType: UserType.STANDARD,
-        creationPath: AccountCreationPath.PATH_B_STANDARD,
-        status: accountAddress ? AccountStatus.DEPLOYED : AccountStatus.PENDING,
+        status: accountAddress ? 'deployed' : 'predicted',
         createdAt: Date.now(),
         deployedAt: accountAddress ? Date.now() : undefined,
-        sponsorId: application?.sponsorId,
       };
       
       // 保存账户信息到AccountManager
       accountManager.importAccount(accountInfo).catch(error => {
-        ErrorHandler.handleError(error);
+        ErrorHandler.handleAndShow(error);
       });
       
       navigate('/assets');
@@ -498,13 +516,13 @@ export const CreateAccountPathBPage: React.FC = () => {
         {steps.map((s, index) => (
           <React.Fragment key={s.number}>
             <Step
-              active={step === s.number}
-              completed={step > s.number}
+              $active={step === s.number}
+              $completed={step > s.number}
             >
               {step > s.number ? '✓' : s.number}
             </Step>
             {index < steps.length - 1 && (
-              <StepLine completed={step > s.number} />
+              <StepLine $completed={step > s.number} />
             )}
           </React.Fragment>
         ))}
@@ -519,10 +537,10 @@ export const CreateAccountPathBPage: React.FC = () => {
           </Description>
           
           <Tabs>
-            <Tab active={eoaMethod === 'create'} onClick={() => setEoaMethod('create')}>
+            <Tab $active={eoaMethod === 'create'} onClick={() => setEoaMethod('create')}>
               创建新EOA
             </Tab>
-            <Tab active={eoaMethod === 'import'} onClick={() => setEoaMethod('import')}>
+            <Tab $active={eoaMethod === 'import'} onClick={() => setEoaMethod('import')}>
               导入现有EOA
             </Tab>
           </Tabs>
@@ -533,12 +551,13 @@ export const CreateAccountPathBPage: React.FC = () => {
                 系统将为您生成一个新的EOA账户，请设置密码保护
               </Description>
               
-              <Input
+              <PasswordInputField
                 label="设置密码"
-                type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(value) => setPassword(value)}
                 placeholder="至少8个字符"
+                showRequirements={true}
+                showStrength={true}
               />
               
               <Input
@@ -547,6 +566,11 @@ export const CreateAccountPathBPage: React.FC = () => {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="再次输入密码"
+                error={
+                  confirmPassword && password !== confirmPassword
+                    ? '两次输入的密码不一致'
+                    : undefined
+                }
               />
 
               <SecurityWarning>
@@ -601,12 +625,13 @@ export const CreateAccountPathBPage: React.FC = () => {
                 - 建议使用离线方式（纸质或硬件）备份并妥善保存。
               </SecurityWarning>
               
-              <Input
+              <PasswordInputField
                 label="设置密码"
-                type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(value) => setPassword(value)}
                 placeholder="至少8个字符"
+                showRequirements={true}
+                showStrength={true}
               />
               
               <Input
@@ -615,12 +640,17 @@ export const CreateAccountPathBPage: React.FC = () => {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="再次输入密码"
+                error={
+                  confirmPassword && password !== confirmPassword
+                    ? '两次输入的密码不一致'
+                    : undefined
+                }
               />
             </>
           )}
           
           <ButtonGroup>
-            <Button onClick={() => navigate('/welcome')} variant="outline">
+            <Button onClick={() => navigate('/welcome')} variant="secondary">
               返回
             </Button>
             <Button
@@ -662,7 +692,7 @@ export const CreateAccountPathBPage: React.FC = () => {
           )}
           
           <ButtonGroup>
-            <Button onClick={() => setStep(1)} variant="outline">
+            <Button onClick={() => setStep(1)} variant="secondary">
               上一步
             </Button>
             <Button
@@ -741,7 +771,7 @@ export const CreateAccountPathBPage: React.FC = () => {
           )}
           
           <ButtonGroup>
-            <Button onClick={() => setStep(2)} variant="outline">
+            <Button onClick={() => setStep(2)} variant="secondary">
               上一步
             </Button>
             <Button

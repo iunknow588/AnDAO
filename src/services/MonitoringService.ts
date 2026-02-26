@@ -13,6 +13,19 @@ interface MonitoringConfig {
   tracesSampleRate?: number;
 }
 
+type SentryLike = {
+  init: (options: Record<string, unknown>) => void;
+  browserTracingIntegration: () => unknown;
+  captureException: (error: Error, options?: { extra?: Record<string, unknown> }) => void;
+  captureMessage: (
+    message: string,
+    options?: { level: 'info' | 'warning' | 'error' }
+  ) => void;
+  setUser: (user: { id?: string; email?: string; username?: string }) => void;
+  setTag: (key: string, value: string) => void;
+  setContext: (key: string, context: Record<string, unknown>) => void;
+};
+
 function redactSensitiveString(input: string): string {
   // 1) 典型 0x 私钥（32 bytes = 64 hex chars）
   const hexPk = /\b0x[a-fA-F0-9]{64}\b/g;
@@ -43,7 +56,7 @@ function redactSensitiveValue(value: unknown): unknown {
       'passphrase',
       'secret',
     ]);
-    const out: any = Array.isArray(value) ? [] : {};
+    const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (sensitiveKeys.has(k)) {
         out[k] = '[REDACTED]';
@@ -99,14 +112,18 @@ class MonitoringService {
           release: this.config.release,
           tracesSampleRate: this.config.tracesSampleRate,
           // ⚠️ 安全：对上报内容做脱敏，避免私钥/助记词被意外带出浏览器
-          beforeSend(event: any) {
+          beforeSend(event: Record<string, unknown>) {
             try {
               // message / exception
               if (event?.message) event.message = redactSensitiveString(String(event.message));
-              if (event?.exception?.values?.length) {
-                event.exception.values = event.exception.values.map((ex: any) => ({
+              const eventRecord = event as Record<string, unknown>;
+              const exceptionRecord = eventRecord.exception as
+                | { values?: Array<Record<string, unknown>> }
+                | undefined;
+              if (Array.isArray(exceptionRecord?.values)) {
+                exceptionRecord.values = exceptionRecord.values.map((ex) => ({
                   ...ex,
-                  value: ex?.value ? redactSensitiveString(String(ex.value)) : ex?.value,
+                  value: ex.value ? redactSensitiveString(String(ex.value)) : ex.value,
                 }));
               }
 
@@ -116,11 +133,12 @@ class MonitoringService {
               if (event?.tags) event.tags = redactSensitiveValue(event.tags);
 
               // breadcrumbs（部分 SDK 可能记录 console / fetch）
-              if (Array.isArray(event?.breadcrumbs)) {
-                event.breadcrumbs = event.breadcrumbs.map((b: any) => ({
+              const breadcrumbs = (eventRecord.breadcrumbs as Array<Record<string, unknown>> | undefined);
+              if (Array.isArray(breadcrumbs)) {
+                eventRecord.breadcrumbs = breadcrumbs.map((b) => ({
                   ...b,
-                  message: b?.message ? redactSensitiveString(String(b.message)) : b?.message,
-                  data: b?.data ? redactSensitiveValue(b.data) : b?.data,
+                  message: b.message ? redactSensitiveString(String(b.message)) : b.message,
+                  data: b.data ? redactSensitiveValue(b.data) : b.data,
                 }));
               }
             } catch {
@@ -161,7 +179,7 @@ class MonitoringService {
    * 注意：@sentry/react 是可选的，如果未安装则返回 null
    * 使用字符串形式的 import() 避免 Vite 在构建时尝试解析
    */
-  private async loadSentry(): Promise<any> {
+  private async loadSentry(): Promise<SentryLike | null> {
     try {
       // 检查环境变量，如果未启用 Sentry，直接返回 null
       const enableSentry = import.meta.env.VITE_ENABLE_SENTRY === 'true';
@@ -172,7 +190,7 @@ class MonitoringService {
       // 使用动态 import，如果模块不存在会抛出错误
       // 使用字符串拼接避免 Vite 静态分析
       const sentryModule = '@sentry/react';
-      const Sentry = await import(/* @vite-ignore */ sentryModule);
+      const Sentry = (await import(/* @vite-ignore */ sentryModule)) as unknown as SentryLike;
       return Sentry;
     } catch (error) {
       // 模块不存在或加载失败，这是正常的（Sentry 是可选的）
@@ -184,7 +202,7 @@ class MonitoringService {
   /**
    * 捕获异常
    */
-  captureException(error: Error, context?: Record<string, any>): void {
+  captureException(error: Error, context?: Record<string, unknown>): void {
     if (!this.config.enabled || !this.initialized) {
       return;
     }
@@ -211,7 +229,7 @@ class MonitoringService {
     this.loadSentry().then((Sentry) => {
       if (Sentry) {
         Sentry.captureMessage(message, {
-          level: level as any,
+          level,
         });
       }
     });
@@ -252,7 +270,7 @@ class MonitoringService {
   /**
    * 设置额外上下文
    */
-  setContext(key: string, context: Record<string, any>): void {
+  setContext(key: string, context: Record<string, unknown>): void {
     if (!this.config.enabled || !this.initialized) {
       return;
     }
@@ -275,4 +293,3 @@ class MonitoringService {
 
 // 导出单例
 export const monitoringService = new MonitoringService();
-

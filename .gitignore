@@ -14,6 +14,7 @@ build/
 .DS_Store
 .env
 .env.local
+env.local
 .env.development.local
 .env.test.local
 .env.production.local
@@ -46,3 +47,8 @@ workbox-*.js
 
 # Deploy scripts (should not be committed to GitHub)
 deploy/
+
+# Documentation directories
+docs/
+docs_cn/
+dosc_cn/

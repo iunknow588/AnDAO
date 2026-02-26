@@ -1,67 +1,64 @@
 /**
  * 守护人服务
- * 
- * 负责管理社交恢复的守护人
- * 支持添加、移除守护人，以及恢复流程
- * 
- * 实现说明：
- * - Kernel 本身不包含内置的守护人/恢复功能
- * - 社交恢复功能需要通过恢复插件（Recovery Plugin）实现
- * - 当前实现基于标准的恢复插件接口，支持完整的恢复流程
- * 
- * 功能实现：
- * 1. ✅ 守护人管理：添加/移除守护人（通过恢复插件接口）
- * 2. ✅ 恢复流程：发起恢复请求（initiateRecovery）
- * 3. ✅ 守护人投票：守护人投票支持恢复（voteForRecovery）
- * 4. ✅ 本地存储：守护人列表和恢复请求的本地缓存
- * 
- * 使用要求：
- * - 恢复插件合约必须已经部署并安装到账户中
- * - 需要在链配置中配置 recoveryPluginAddress
- * - 守护人可以使用EOA账户或智能合约账户（自动检测）
+ *
+ * 负责社交恢复中的守护人管理、恢复流程和守护人提案流程。
  */
 
 import type { Address } from 'viem';
-import { createPublicClient, http, encodeFunctionData } from 'viem';
-import { Guardian, AccountInfo } from '@/types';
-import { getChainConfigByChainId } from '@/config/chains';
+import { encodeFunctionData } from 'viem';
+import { Guardian, StorageKey } from '@/types';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
 import { storageAdapter } from '@/adapters/StorageAdapter';
-import { StorageKey } from '@/types';
 import { transactionRelayer } from './TransactionRelayer';
+import { rpcClientManager } from '@/utils/RpcClientManager';
+import { accountManager } from './AccountManager';
 
-/**
- * 守护人管理服务
- */
+export type GuardianProposalType = 'add' | 'remove';
+export type GuardianProposalStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'expired'
+  | 'cancelled';
+
+export interface GuardianProposal {
+  proposalId: string;
+  accountAddress: Address;
+  chainId: number;
+  type: GuardianProposalType;
+  guardianAddress: Address;
+  proposer: Address;
+  createdAt: number;
+  expiresAt: number;
+  status: GuardianProposalStatus;
+  votes: Array<{
+    guardian: Address;
+    vote: 'support' | 'oppose';
+    timestamp: number;
+  }>;
+  txHash?: string;
+}
+
+type RecoveryRequestStatus = 'pending' | 'approved' | 'completed' | 'rejected';
+
+interface RecoveryRequest {
+  recoveryId: string;
+  newOwner: Address;
+  txHash: string;
+  createdAt: number;
+  status: RecoveryRequestStatus;
+}
+
 export class GuardianService {
-  /**
-   * 获取账户的守护人列表
-   * 
-   * 优先从链上查询，如果失败则从本地存储获取
-   * 
-   * @param accountAddress 账户地址
-   * @param chainId 链ID
-   * @param recoveryPluginAddress 恢复插件地址（可选，如果不提供则尝试从配置获取）
-   * @returns 守护人列表
-   */
   async getGuardians(
     accountAddress: Address,
     chainId: number,
     recoveryPluginAddress?: Address
   ): Promise<Guardian[]> {
-    // 尝试从链上查询守护人列表
     if (recoveryPluginAddress) {
       try {
-        const chainConfig = getChainConfigByChainId(chainId);
-        if (!chainConfig) {
-          throw new Error(`Chain config not found for chainId: ${chainId}`);
-        }
-
-        const publicClient = createPublicClient({
-          transport: http(chainConfig.rpcUrl),
-        });
-
-        // 标准恢复插件接口：function getGuardians() external view returns (address[])
-        const guardians = await publicClient.readContract({
+        const publicClient = rpcClientManager.getPublicClient(chainId);
+        const guardians = (await publicClient.readContract({
           address: recoveryPluginAddress,
           abi: [
             {
@@ -73,47 +70,26 @@ export class GuardianService {
             },
           ],
           functionName: 'getGuardians',
-        }) as Address[];
+        })) as Address[];
 
-        // 转换为 Guardian 格式
         const guardianList: Guardian[] = guardians.map((address) => ({
           address,
-          addedAt: Date.now(), // 链上查询无法获取添加时间，使用当前时间
+          addedAt: Date.now(),
         }));
 
-        // 更新本地存储
-        const key = `${StorageKey.GUARDIANS}_${accountAddress}_${chainId}`;
-        await storageAdapter.set(key, guardianList);
-
+        await storageAdapter.set(this.guardiansKey(accountAddress, chainId), guardianList);
         return guardianList;
       } catch (error) {
-        console.warn('Failed to fetch guardians from chain, using local storage:', error);
+        console.warn('Failed to fetch guardians from chain, fallback to local:', error);
       }
     }
 
-    // 从本地存储获取
-    const key = `${StorageKey.GUARDIANS}_${accountAddress}_${chainId}`;
-    const stored = await storageAdapter.get<Guardian[]>(key);
-    if (stored) {
-      return stored;
-    }
-
-    return [];
+    const stored = await storageAdapter.get<Guardian[]>(
+      this.guardiansKey(accountAddress, chainId)
+    );
+    return stored || [];
   }
 
-  /**
-   * 添加守护人
-   * 
-   * 通过恢复插件添加守护人
-   * 注意：需要先安装恢复插件到账户中
-   * 
-   * @param accountAddress 账户地址
-   * @param chainId 链ID
-   * @param guardianAddress 守护人地址
-   * @param recoveryPluginAddress 恢复插件合约地址（可选，如果不提供则尝试从配置获取）
-   * @param signerPrivateKey 签名者私钥
-   * @returns 交易哈希
-   */
   async addGuardian(
     accountAddress: Address,
     chainId: number,
@@ -121,63 +97,26 @@ export class GuardianService {
     signerPrivateKey: `0x${string}`,
     recoveryPluginAddress?: Address
   ): Promise<string> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
+    const guardians = await this.getGuardians(accountAddress, chainId, recoveryPluginAddress);
+    if (guardians.length < 3) {
+      return this.addGuardianDirectly(
+        accountAddress,
+        chainId,
+        guardianAddress,
+        signerPrivateKey,
+        recoveryPluginAddress
+      );
     }
 
-    // 如果没有提供恢复插件地址，尝试从配置获取
-    if (!recoveryPluginAddress) {
-      recoveryPluginAddress = chainConfig.recoveryPluginAddress as Address | undefined;
-      if (!recoveryPluginAddress) {
-        throw new Error('Recovery plugin address is required. Please provide recoveryPluginAddress or configure it in chain config.');
-      }
-    }
-
-    // 构造调用恢复插件的 addGuardian 方法
-    // 标准恢复插件接口：function addGuardian(address guardian) external returns (bool)
-    const callData = encodeFunctionData({
-      abi: [
-        {
-          inputs: [{ name: 'guardian', type: 'address' }],
-          name: 'addGuardian',
-          outputs: [{ name: '', type: 'bool' }],
-          stateMutability: 'nonpayable',
-          type: 'function',
-        },
-      ],
-      functionName: 'addGuardian',
-      args: [guardianAddress],
-    });
-
-    // 发送交易到恢复插件
-    // 注意：恢复插件应该已经安装在账户中
-    const txHash = await transactionRelayer.sendTransaction(
+    return this.proposeAddGuardian(
       accountAddress,
       chainId,
-      recoveryPluginAddress, // 调用恢复插件
-      callData,
-      signerPrivateKey
+      guardianAddress,
+      signerPrivateKey,
+      recoveryPluginAddress
     );
-
-    // 更新本地存储
-    await this.updateLocalGuardians(accountAddress, chainId, guardianAddress, 'add');
-
-    return txHash;
   }
 
-  /**
-   * 移除守护人
-   * 
-   * 通过恢复插件移除守护人
-   * 
-   * @param accountAddress 账户地址
-   * @param chainId 链ID
-   * @param guardianAddress 守护人地址
-   * @param signerPrivateKey 签名者私钥
-   * @param recoveryPluginAddress 恢复插件合约地址（可选）
-   * @returns 交易哈希
-   */
   async removeGuardian(
     accountAddress: Address,
     chainId: number,
@@ -185,105 +124,26 @@ export class GuardianService {
     signerPrivateKey: `0x${string}`,
     recoveryPluginAddress?: Address
   ): Promise<string> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
+    const guardians = await this.getGuardians(accountAddress, chainId, recoveryPluginAddress);
+    if (guardians.length < 3) {
+      return this.removeGuardianDirectly(
+        accountAddress,
+        chainId,
+        guardianAddress,
+        signerPrivateKey,
+        recoveryPluginAddress
+      );
     }
 
-    // 如果没有提供恢复插件地址，尝试从配置获取
-    if (!recoveryPluginAddress) {
-      recoveryPluginAddress = chainConfig.recoveryPluginAddress as Address | undefined;
-      if (!recoveryPluginAddress) {
-        throw new Error('Recovery plugin address is required. Please provide recoveryPluginAddress or configure it in chain config.');
-      }
-    }
-
-    // 构造调用恢复插件的 removeGuardian 方法
-    // 标准恢复插件接口：function removeGuardian(address guardian) external returns (bool)
-    const callData = encodeFunctionData({
-      abi: [
-        {
-          inputs: [{ name: 'guardian', type: 'address' }],
-          name: 'removeGuardian',
-          outputs: [{ name: '', type: 'bool' }],
-          stateMutability: 'nonpayable',
-          type: 'function',
-        },
-      ],
-      functionName: 'removeGuardian',
-      args: [guardianAddress],
-    });
-
-    // 发送交易到恢复插件
-    const txHash = await transactionRelayer.sendTransaction(
+    return this.proposeRemoveGuardian(
       accountAddress,
       chainId,
-      recoveryPluginAddress,
-      callData,
-      signerPrivateKey
+      guardianAddress,
+      signerPrivateKey,
+      recoveryPluginAddress
     );
-
-    // 更新本地存储
-    await this.updateLocalGuardians(accountAddress, chainId, guardianAddress, 'remove');
-
-    return txHash;
   }
 
-
-  /**
-   * 更新本地存储的守护人列表
-   */
-  private async updateLocalGuardians(
-    accountAddress: Address,
-    chainId: number,
-    guardianAddress: Address,
-    action: 'add' | 'remove'
-  ): Promise<void> {
-    const key = `${StorageKey.GUARDIANS}_${accountAddress}_${chainId}`;
-    const guardians = await this.getGuardians(accountAddress, chainId);
-
-    if (action === 'add') {
-      // 检查是否已存在
-      const exists = guardians.some(
-        (g) => g.address.toLowerCase() === guardianAddress.toLowerCase()
-      );
-      if (!exists) {
-        guardians.push({
-          address: guardianAddress,
-          addedAt: Date.now(),
-        });
-      }
-    } else {
-      // 移除
-      const index = guardians.findIndex(
-        (g) => g.address.toLowerCase() === guardianAddress.toLowerCase()
-      );
-      if (index >= 0) {
-        guardians.splice(index, 1);
-      }
-    }
-
-    await storageAdapter.set(key, guardians);
-  }
-
-  /**
-   * 发起恢复请求
-   * 
-   * 注意：Kernel 本身不包含内置的恢复功能
-   * 恢复功能需要通过恢复插件（Recovery Plugin）实现
-   * 
-   * 恢复流程：
-   * 1. 调用恢复插件的 initiateRecovery 方法
-   * 2. 恢复插件创建恢复请求，等待守护人投票
-   * 3. 当达到阈值时，恢复插件更新账户所有者
-   * 
-   * @param accountAddress 账户地址
-   * @param chainId 链ID
-   * @param newOwner 新所有者地址
-   * @param recoveryPluginAddress 恢复插件合约地址（可选，如果不提供则从配置获取）
-   * @param signerPrivateKey 签名者私钥（当前所有者）
-   * @returns 恢复请求ID和交易哈希
-   */
   async initiateRecovery(
     accountAddress: Address,
     chainId: number,
@@ -291,26 +151,15 @@ export class GuardianService {
     recoveryPluginAddress?: Address,
     signerPrivateKey?: `0x${string}`
   ): Promise<{ recoveryId: string; txHash: string }> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
-    }
-
-    // 如果没有提供恢复插件地址，尝试从配置获取
-    if (!recoveryPluginAddress) {
-      recoveryPluginAddress = chainConfig.recoveryPluginAddress as Address | undefined;
-      if (!recoveryPluginAddress) {
-        throw new Error('Recovery plugin address is required. Please provide recoveryPluginAddress or configure it in chain config.');
-      }
-    }
-
     if (!signerPrivateKey) {
       throw new Error('Signer private key is required to initiate recovery');
     }
 
-    // 构造调用恢复插件的 initiateRecovery 方法
-    // 标准恢复插件接口：
-    // function initiateRecovery(address newOwner) external returns (bytes32 recoveryId)
+    const pluginAddress = this.resolveRecoveryPluginAddress(
+      chainId,
+      recoveryPluginAddress
+    );
+
     const callData = encodeFunctionData({
       abi: [
         {
@@ -325,67 +174,40 @@ export class GuardianService {
       args: [newOwner],
     });
 
-    // 发送交易到恢复插件
-    // 注意：恢复插件应该已经安装在账户中
     const txHash = await transactionRelayer.sendTransaction(
       accountAddress,
       chainId,
-      recoveryPluginAddress,
+      pluginAddress,
       callData,
       signerPrivateKey
     );
 
-    // 生成恢复ID（从交易哈希派生，或从交易回执中获取）
     const recoveryId = `recovery_${txHash}`;
-
-    // 保存恢复请求到本地存储
-    await this.saveRecoveryRequest(accountAddress, chainId, recoveryId, newOwner, txHash);
+    await this.saveRecoveryRequest(accountAddress, chainId, {
+      recoveryId,
+      newOwner,
+      txHash,
+      createdAt: Date.now(),
+      status: 'pending',
+    });
 
     return { recoveryId, txHash };
   }
 
-  /**
-   * 守护人投票
-   * 
-   * 守护人对恢复请求进行投票
-   * 当达到阈值时，恢复插件会自动执行恢复
-   * 
-   * 实现方案：
-   * 1. 守护人使用自己的EOA账户发送投票交易
-   * 2. 或者守护人通过智能合约账户发送交易（如果守护人也是智能合约账户）
-   * 
-   * 当前实现：守护人使用自己的EOA账户发送交易
-   * 
-   * @param accountAddress 被恢复的账户地址
-   * @param chainId 链ID
-   * @param recoveryId 恢复请求ID
-   * @param recoveryPluginAddress 恢复插件合约地址（可选，如果不提供则从配置获取）
-   * @param guardianPrivateKey 守护人私钥（EOA账户的私钥）
-   * @returns 交易哈希
-   */
   async voteForRecovery(
-    accountAddress: Address,
+    _accountAddress: Address,
     chainId: number,
     recoveryId: string,
     guardianPrivateKey: `0x${string}`,
     recoveryPluginAddress?: Address
   ): Promise<string> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
-    }
+    const chainConfig = requireChainConfig(chainId, ['rpcUrl']);
 
-    // 如果没有提供恢复插件地址，尝试从配置获取
-    if (!recoveryPluginAddress) {
-      recoveryPluginAddress = chainConfig.recoveryPluginAddress as Address | undefined;
-      if (!recoveryPluginAddress) {
-        throw new Error('Recovery plugin address is required. Please provide recoveryPluginAddress or configure it in chain config.');
-      }
-    }
+    const pluginAddress = this.resolveRecoveryPluginAddress(
+      chainId,
+      recoveryPluginAddress
+    );
 
-    // 构造调用恢复插件的 voteForRecovery 方法
-    // 标准恢复插件接口：
-    // function voteForRecovery(bytes32 recoveryId) external returns (bool)
     const callData = encodeFunctionData({
       abi: [
         {
@@ -400,100 +222,434 @@ export class GuardianService {
       args: [recoveryId as `0x${string}`],
     });
 
-    // 发送交易
-    // 注意：守护人使用自己的EOA账户发送投票交易
-    // 守护人的EOA账户地址从私钥派生
     const { privateKeyToAccount } = await import('viem/accounts');
     const guardianAccount = privateKeyToAccount(guardianPrivateKey);
     const guardianAddress = guardianAccount.address;
 
-    // 方案1: 如果守护人也是智能合约账户，使用 TransactionRelayer
-    // 方案2: 如果守护人是EOA账户，直接发送交易（当前实现）
-    // 
-    // 当前实现：假设守护人是EOA账户，直接发送交易
-    // 如果守护人也是智能合约账户，需要先检查账户类型
-    
-    // 检查守护人账户类型
-    const publicClient = createPublicClient({
-      transport: http(chainConfig.rpcUrl),
-    });
+    const publicClient = rpcClientManager.getPublicClient(chainId);
+    const code = await publicClient.getBytecode({ address: guardianAddress });
+    const isSmartAccount = !!code && code !== '0x';
 
-    const guardianCode = await publicClient.getBytecode({ address: guardianAddress });
-    const isGuardianSmartContract = guardianCode !== undefined && guardianCode !== '0x';
-
-    if (isGuardianSmartContract) {
-      // 守护人是智能合约账户，使用 TransactionRelayer
-      return await transactionRelayer.sendTransaction(
+    if (isSmartAccount) {
+      return transactionRelayer.sendTransaction(
         guardianAddress,
         chainId,
-        recoveryPluginAddress,
+        pluginAddress,
         callData,
         guardianPrivateKey
       );
-    } else {
-      // 守护人是EOA账户，直接发送交易
-      const { createWalletClient, http: httpTransport } = await import('viem');
-      const walletClient = createWalletClient({
-        account: guardianAccount,
-        transport: httpTransport(chainConfig.rpcUrl),
-      });
-
-      const txHash = await walletClient.sendTransaction({
-        to: recoveryPluginAddress,
-        data: callData,
-      });
-
-      return txHash;
     }
-  }
 
-  /**
-   * 保存恢复请求到本地存储
-   */
-  private async saveRecoveryRequest(
-    accountAddress: Address,
-    chainId: number,
-    recoveryId: string,
-    newOwner: Address,
-    txHash: string
-  ): Promise<void> {
-    const key = `${StorageKey.GUARDIANS}_recovery_${accountAddress}_${chainId}`;
-    const recoveries = await storageAdapter.get<Array<{
-      recoveryId: string;
-      newOwner: Address;
-      txHash: string;
-      createdAt: number;
-      status: 'pending' | 'approved' | 'completed' | 'rejected';
-    }>>(key) || [];
-
-    recoveries.push({
-      recoveryId,
-      newOwner,
-      txHash,
-      createdAt: Date.now(),
-      status: 'pending',
+    const { createWalletClient, http: httpTransport } = await import('viem');
+    const walletClient = createWalletClient({
+      account: guardianAccount,
+      chain: rpcClientManager.getChain(chainId),
+      transport: httpTransport(chainConfig.rpcUrl),
     });
 
-    await storageAdapter.set(key, recoveries);
+    return walletClient.sendTransaction({
+      chain: rpcClientManager.getChain(chainId),
+      to: pluginAddress,
+      data: callData,
+    });
   }
 
-  /**
-   * 获取恢复请求列表
-   */
   async getRecoveryRequests(
     accountAddress: Address,
     chainId: number
-  ): Promise<Array<{
-    recoveryId: string;
-    newOwner: Address;
-    txHash: string;
-    createdAt: number;
-    status: 'pending' | 'approved' | 'completed' | 'rejected';
-  }>> {
-    const key = `${StorageKey.GUARDIANS}_recovery_${accountAddress}_${chainId}`;
-    return await storageAdapter.get(key) || [];
+  ): Promise<RecoveryRequest[]> {
+    const stored = await storageAdapter.get<RecoveryRequest[]>(
+      this.recoveryRequestsKey(accountAddress, chainId)
+    );
+    return stored || [];
+  }
+
+  async checkPathAUpgrade(accountAddress: Address, chainId: number): Promise<boolean> {
+    try {
+      await accountManager.init();
+
+      const account = (await accountManager.getAccountByAddress(
+        accountAddress,
+        chainId
+      )) as Record<string, unknown> | null;
+
+      if (!account) {
+        return false;
+      }
+
+      const userType = account.userType;
+      const creationPath = account.creationPath;
+      const originalCreationPath = account.originalCreationPath;
+
+      const isPathAUser =
+        userType === 'simple' || creationPath === 'path_a_simple';
+      if (!isPathAUser) {
+        return false;
+      }
+
+      if (
+        typeof originalCreationPath === 'string' &&
+        originalCreationPath !== 'path_a_simple'
+      ) {
+        return false;
+      }
+
+      const guardians = await this.getGuardians(accountAddress, chainId);
+      return guardians.length >= 3;
+    } catch (error) {
+      console.warn('Failed to check path A upgrade condition:', error);
+      return false;
+    }
+  }
+
+  async proposeAddGuardian(
+    accountAddress: Address,
+    chainId: number,
+    guardianAddress: Address,
+    signerPrivateKey: `0x${string}`,
+    recoveryPluginAddress?: Address
+  ): Promise<string> {
+    this.resolveRecoveryPluginAddress(chainId, recoveryPluginAddress);
+    const proposer = await this.deriveAddressFromPrivateKey(signerPrivateKey);
+
+    const proposalId = this.createProposalId(accountAddress, chainId, guardianAddress);
+    const proposal: GuardianProposal = {
+      proposalId,
+      accountAddress,
+      chainId,
+      type: 'add',
+      guardianAddress,
+      proposer,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      status: 'pending',
+      votes: [],
+    };
+
+    await this.saveProposal(proposal);
+    return proposalId;
+  }
+
+  async proposeRemoveGuardian(
+    accountAddress: Address,
+    chainId: number,
+    guardianAddress: Address,
+    signerPrivateKey: `0x${string}`,
+    recoveryPluginAddress?: Address
+  ): Promise<string> {
+    this.resolveRecoveryPluginAddress(chainId, recoveryPluginAddress);
+    const proposer = await this.deriveAddressFromPrivateKey(signerPrivateKey);
+
+    const proposalId = this.createProposalId(accountAddress, chainId, guardianAddress);
+    const proposal: GuardianProposal = {
+      proposalId,
+      accountAddress,
+      chainId,
+      type: 'remove',
+      guardianAddress,
+      proposer,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      status: 'pending',
+      votes: [],
+    };
+
+    await this.saveProposal(proposal);
+    return proposalId;
+  }
+
+  async voteForGuardianProposal(
+    proposalId: string,
+    guardianPrivateKey: `0x${string}`,
+    vote: 'support' | 'oppose'
+  ): Promise<string> {
+    const proposal = await this.getProposal(proposalId);
+    if (!proposal) {
+      throw new Error('Proposal not found');
+    }
+
+    if (proposal.status !== 'pending') {
+      throw new Error(`Proposal is ${proposal.status}, cannot vote`);
+    }
+
+    if (Date.now() > proposal.expiresAt) {
+      proposal.status = 'expired';
+      await this.saveProposal(proposal);
+      throw new Error('Proposal has expired');
+    }
+
+    const guardianAddress = await this.deriveAddressFromPrivateKey(guardianPrivateKey);
+    const guardians = await this.getGuardians(proposal.accountAddress, proposal.chainId);
+    const isGuardian = guardians.some(
+      (item) => item.address.toLowerCase() === guardianAddress.toLowerCase()
+    );
+    if (!isGuardian) {
+      throw new Error('Only guardians can vote');
+    }
+
+    const hasVoted = proposal.votes.some(
+      (entry) => entry.guardian.toLowerCase() === guardianAddress.toLowerCase()
+    );
+    if (hasVoted) {
+      throw new Error('You have already voted');
+    }
+
+    proposal.votes.push({
+      guardian: guardianAddress,
+      vote,
+      timestamp: Date.now(),
+    });
+
+    const supportVotes = proposal.votes.filter((entry) => entry.vote === 'support').length;
+    if (supportVotes > guardians.length / 2) {
+      proposal.status = 'approved';
+      await this.executeProposal(proposal, guardianPrivateKey);
+    }
+
+    await this.saveProposal(proposal);
+    return `vote_${proposalId}_${guardianAddress}_${Date.now()}`;
+  }
+
+  async getProposal(proposalId: string): Promise<GuardianProposal | null> {
+    return (
+      (await storageAdapter.get<GuardianProposal>(
+        `${StorageKey.GUARDIANS}_proposal_${proposalId}`
+      )) || null
+    );
+  }
+
+  async getGuardianProposals(
+    accountAddress: Address,
+    chainId: number
+  ): Promise<GuardianProposal[]> {
+    const key = `${StorageKey.GUARDIANS}_proposals_${accountAddress}_${chainId}`;
+    const proposals = (await storageAdapter.get<GuardianProposal[]>(key)) || [];
+
+    const now = Date.now();
+    for (const proposal of proposals) {
+      if (proposal.status === 'pending' && now > proposal.expiresAt) {
+        proposal.status = 'expired';
+        await this.saveProposal(proposal);
+      }
+    }
+
+    return proposals;
+  }
+
+  async cancelProposal(
+    proposalId: string,
+    signerPrivateKey: `0x${string}`
+  ): Promise<void> {
+    const proposal = await this.getProposal(proposalId);
+    if (!proposal) {
+      throw new Error('Proposal not found');
+    }
+
+    const signerAddress = await this.deriveAddressFromPrivateKey(signerPrivateKey);
+    if (proposal.proposer.toLowerCase() !== signerAddress.toLowerCase()) {
+      throw new Error('Only the proposer can cancel the proposal');
+    }
+
+    proposal.status = 'cancelled';
+    await this.saveProposal(proposal);
+  }
+
+  private async addGuardianDirectly(
+    accountAddress: Address,
+    chainId: number,
+    guardianAddress: Address,
+    signerPrivateKey: `0x${string}`,
+    recoveryPluginAddress?: Address
+  ): Promise<string> {
+    const pluginAddress = this.resolveRecoveryPluginAddress(
+      chainId,
+      recoveryPluginAddress
+    );
+
+    const callData = encodeFunctionData({
+      abi: [
+        {
+          inputs: [{ name: 'guardian', type: 'address' }],
+          name: 'addGuardian',
+          outputs: [{ name: '', type: 'bool' }],
+          stateMutability: 'nonpayable',
+          type: 'function',
+        },
+      ],
+      functionName: 'addGuardian',
+      args: [guardianAddress],
+    });
+
+    const txHash = await transactionRelayer.sendTransaction(
+      accountAddress,
+      chainId,
+      pluginAddress,
+      callData,
+      signerPrivateKey
+    );
+
+    await this.updateLocalGuardians(accountAddress, chainId, guardianAddress, 'add');
+    await this.checkPathAUpgrade(accountAddress, chainId);
+    return txHash;
+  }
+
+  private async removeGuardianDirectly(
+    accountAddress: Address,
+    chainId: number,
+    guardianAddress: Address,
+    signerPrivateKey: `0x${string}`,
+    recoveryPluginAddress?: Address
+  ): Promise<string> {
+    const pluginAddress = this.resolveRecoveryPluginAddress(
+      chainId,
+      recoveryPluginAddress
+    );
+
+    const callData = encodeFunctionData({
+      abi: [
+        {
+          inputs: [{ name: 'guardian', type: 'address' }],
+          name: 'removeGuardian',
+          outputs: [{ name: '', type: 'bool' }],
+          stateMutability: 'nonpayable',
+          type: 'function',
+        },
+      ],
+      functionName: 'removeGuardian',
+      args: [guardianAddress],
+    });
+
+    const txHash = await transactionRelayer.sendTransaction(
+      accountAddress,
+      chainId,
+      pluginAddress,
+      callData,
+      signerPrivateKey
+    );
+
+    await this.updateLocalGuardians(accountAddress, chainId, guardianAddress, 'remove');
+    return txHash;
+  }
+
+  private async updateLocalGuardians(
+    accountAddress: Address,
+    chainId: number,
+    guardianAddress: Address,
+    action: 'add' | 'remove'
+  ): Promise<void> {
+    const key = this.guardiansKey(accountAddress, chainId);
+    const guardians = (await storageAdapter.get<Guardian[]>(key)) || [];
+
+    if (action === 'add') {
+      const exists = guardians.some(
+        (item) => item.address.toLowerCase() === guardianAddress.toLowerCase()
+      );
+      if (!exists) {
+        guardians.push({ address: guardianAddress, addedAt: Date.now() });
+      }
+    } else {
+      const next = guardians.filter(
+        (item) => item.address.toLowerCase() !== guardianAddress.toLowerCase()
+      );
+      await storageAdapter.set(key, next);
+      return;
+    }
+
+    await storageAdapter.set(key, guardians);
+  }
+
+  private async saveRecoveryRequest(
+    accountAddress: Address,
+    chainId: number,
+    request: RecoveryRequest
+  ): Promise<void> {
+    const key = this.recoveryRequestsKey(accountAddress, chainId);
+    const requests = (await storageAdapter.get<RecoveryRequest[]>(key)) || [];
+    requests.push(request);
+    await storageAdapter.set(key, requests);
+  }
+
+  private async saveProposal(proposal: GuardianProposal): Promise<void> {
+    const proposalKey = `${StorageKey.GUARDIANS}_proposal_${proposal.proposalId}`;
+    await storageAdapter.set(proposalKey, proposal);
+
+    const listKey = `${StorageKey.GUARDIANS}_proposals_${proposal.accountAddress}_${proposal.chainId}`;
+    const proposals = (await storageAdapter.get<GuardianProposal[]>(listKey)) || [];
+    const index = proposals.findIndex((item) => item.proposalId === proposal.proposalId);
+
+    if (index >= 0) {
+      proposals[index] = proposal;
+    } else {
+      proposals.push(proposal);
+    }
+
+    await storageAdapter.set(listKey, proposals);
+  }
+
+  private async executeProposal(
+    proposal: GuardianProposal,
+    signerPrivateKey: `0x${string}`
+  ): Promise<void> {
+    if (proposal.type === 'add') {
+      await this.addGuardianDirectly(
+        proposal.accountAddress,
+        proposal.chainId,
+        proposal.guardianAddress,
+        signerPrivateKey
+      );
+      return;
+    }
+
+    await this.removeGuardianDirectly(
+      proposal.accountAddress,
+      proposal.chainId,
+      proposal.guardianAddress,
+      signerPrivateKey
+    );
+  }
+
+  private resolveRecoveryPluginAddress(
+    chainId: number,
+    provided?: Address
+  ): Address {
+    if (provided) {
+      return provided;
+    }
+
+    const chainConfig = requireChainConfig(chainId);
+
+    const fromConfig = chainConfig.recoveryPluginAddress as Address | undefined;
+    if (!fromConfig) {
+      throw new Error(
+        'Recovery plugin address is required. Please provide recoveryPluginAddress or configure it in chain config.'
+      );
+    }
+
+    return fromConfig;
+  }
+
+  private async deriveAddressFromPrivateKey(
+    privateKey: `0x${string}`
+  ): Promise<Address> {
+    const { privateKeyToAccount } = await import('viem/accounts');
+    return privateKeyToAccount(privateKey).address;
+  }
+
+  private createProposalId(
+    accountAddress: Address,
+    chainId: number,
+    guardianAddress: Address
+  ): string {
+    return `proposal_${accountAddress}_${chainId}_${Date.now()}_${guardianAddress}`;
+  }
+
+  private guardiansKey(accountAddress: Address, chainId: number): string {
+    return `${StorageKey.GUARDIANS}_${accountAddress}_${chainId}`;
+  }
+
+  private recoveryRequestsKey(accountAddress: Address, chainId: number): string {
+    return `${StorageKey.GUARDIANS}_recovery_${accountAddress}_${chainId}`;
   }
 }
 
 export const guardianService = new GuardianService();
-

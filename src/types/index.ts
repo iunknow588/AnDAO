@@ -57,6 +57,8 @@ export interface ChainConfig {
 export enum SupportedChain {
   MANTLE = 'mantle',
   INJECTIVE = 'injective',
+  AVALANCHE = 'avalanche',
+  SOLANA = 'solana',
 }
 
 /**
@@ -76,8 +78,15 @@ export interface AccountInfo {
   chainId: number;
   owner: string; // 签名者地址
   createdAt: number;
-  status: 'predicted' | 'deployed';
+  status: 'predicted' | 'pending' | 'deployed';
   deployedAt?: number;
+  userType?: UserType;
+  creationPath?: AccountCreationPath;
+  eoaAddress?: string;
+  sponsorId?: string;
+  applicationStatus?: 'pending' | 'approved' | 'rejected';
+  applicationStorageId?: string;
+  originalCreationPath?: AccountCreationPath;
 }
 
 /**
@@ -168,7 +177,7 @@ export class WalletError extends Error {
   constructor(
     message: string,
     public code: string,
-    public details?: any
+    public details?: unknown
   ) {
     super(message);
     this.name = 'WalletError';
@@ -244,37 +253,7 @@ export enum AccountCreationPath {
  * 
  * 在基础AccountInfo基础上，添加三路径相关的字段
  */
-export interface ExtendedAccountInfo extends AccountInfo {
-  /**
-   * 用户类型
-   * 标识账户是通过哪种路径创建的
-   */
-  userType?: UserType;
-  
-  /**
-   * EOA地址（路径B和C）
-   * 用于支付Gas费用的EOA账户地址
-   */
-  eoaAddress?: string;
-  
-  /**
-   * 赞助商ID（路径C）
-   * 如果用户是赞助商，存储赞助商ID
-   */
-  sponsorId?: string;
-  
-  /**
-   * 申请状态（路径A）
-   * 如果账户是通过路径A创建的，存储申请状态
-   */
-  applicationStatus?: 'pending' | 'approved' | 'rejected';
-  
-  /**
-   * 申请存储标识符（路径A）
-   * 存储申请详情的IPFS CID或其他存储标识符
-   */
-  applicationStorageId?: string;
-}
+export type ExtendedAccountInfo = AccountInfo;
 
 // 存储键
 export enum StorageKey {
@@ -286,5 +265,5 @@ export enum StorageKey {
   TWO_PHASE_COMMIT_TASKS = 'two_phase_commit_tasks',
   GUARDIANS = 'guardians',
   PLUGINS = 'plugins',
+  MING_SCHEDULED_TASKS = 'ming_scheduled_tasks',
 }
-

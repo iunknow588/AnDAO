@@ -6,10 +6,10 @@
  */
 
 import type { Address, Hex } from 'viem';
-import { createPublicClient, http, encodeFunctionData } from 'viem';
-import { getChainConfigByChainId } from '@/config/chains';
+import { rpcClientManager } from '@/utils/RpcClientManager';
 import { configStorage } from '@/adapters/StorageAdapter';
 import { UserOperation } from '@/types';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
 
 export interface PaymasterConfig {
   address: Address;
@@ -52,10 +52,7 @@ export class PaymasterService {
     chainId: number,
     paymasterAddress?: Address
   ): Promise<string> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
-    }
+    const chainConfig = requireChainConfig(chainId);
 
     // 如果没有指定 Paymaster 地址，使用链配置中的地址
     const pmAddress = paymasterAddress || (chainConfig.paymasterAddress as Address | undefined);
@@ -83,14 +80,8 @@ export class PaymasterService {
     chainId: number,
     paymasterAddress: Address
   ): Promise<Hex> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
-    }
-
-    const publicClient = createPublicClient({
-      transport: http(chainConfig.rpcUrl),
-    });
+    // 使用 RpcClientManager 获取缓存的 PublicClient 实例
+    const publicClient = rpcClientManager.getPublicClient(chainId);
 
     try {
       // 调用 Paymaster 的 getHash 方法
@@ -140,7 +131,7 @@ export class PaymasterService {
   /**
    * 格式化 UserOperation 为 Paymaster 期望的格式
    */
-  private formatUserOpForPaymaster(userOp: UserOperation): any {
+  private formatUserOpForPaymaster(userOp: UserOperation): UserOperation {
     return {
       sender: userOp.sender,
       nonce: userOp.nonce,
@@ -160,19 +151,27 @@ export class PaymasterService {
    * 检查是否可以使用 Paymaster
    */
   async canUsePaymaster(chainId: number): Promise<boolean> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    return !!(chainConfig?.paymasterAddress);
+    try {
+      const chainConfig = requireChainConfig(chainId);
+      return !!chainConfig.paymasterAddress;
+    } catch {
+      return false;
+    }
   }
 
   /**
    * 获取 Paymaster 地址
    */
   getPaymasterAddress(chainId: number): Address | null {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig?.paymasterAddress) {
+    try {
+      const chainConfig = requireChainConfig(chainId);
+      if (!chainConfig.paymasterAddress) {
+        return null;
+      }
+      return chainConfig.paymasterAddress as Address;
+    } catch {
       return null;
     }
-    return chainConfig.paymasterAddress as Address;
   }
 
   /**
@@ -218,4 +217,3 @@ export class PaymasterService {
 }
 
 export const paymasterService = new PaymasterService();
-

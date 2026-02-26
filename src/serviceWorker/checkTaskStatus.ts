@@ -9,6 +9,26 @@
 
 import { createPublicClient, http } from 'viem';
 
+type CommitmentStatus = {
+  isCommitted: boolean;
+  isRevealed: boolean;
+};
+
+function toCommitmentStatus(value: unknown): CommitmentStatus {
+  if (
+    Array.isArray(value) &&
+    value.length >= 3 &&
+    typeof value[1] === 'boolean' &&
+    typeof value[2] === 'boolean'
+  ) {
+    return {
+      isCommitted: value[1],
+      isRevealed: value[2],
+    };
+  }
+  throw new Error('Invalid getCommitmentStatus response');
+}
+
 /**
  * 两阶段提交合约标准 ABI（仅用于 canReveal 检查）
  */
@@ -46,7 +66,7 @@ const TWO_PHASE_COMMIT_ABI = [
  * @returns 是否可以揭示
  */
 export async function checkCanReveal(
-  chainId: number,
+  _chainId: number,
   contractAddress: string,
   commitmentHash: string,
   rpcUrl: string
@@ -77,7 +97,8 @@ export async function checkCanReveal(
       });
 
       // 如果已提交且未揭示，则可以揭示
-      return (status as any).isCommitted && !(status as any).isRevealed;
+      const commitmentStatus = toCommitmentStatus(status);
+      return commitmentStatus.isCommitted && !commitmentStatus.isRevealed;
     } catch (fallbackError) {
       console.error('[checkTaskStatus] Error checking commitment status:', fallbackError);
       return false;

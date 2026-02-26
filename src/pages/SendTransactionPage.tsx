@@ -4,17 +4,22 @@
  * 参考 Keplr 钱包的交易页面设计，但代码完全独立实现
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores';
 import { useNavigate } from 'react-router-dom';
-import { transactionRelayer } from '@/services/TransactionRelayer';
+import { transactionRelayer, FallbackModeError } from '@/services/TransactionRelayer';
 import { tokenService, TokenInfo } from '@/services/TokenService';
 import { keyManagerService } from '@/services/KeyManagerService';
 import { ErrorHandler } from '@/utils/errors';
 import { encodeFunctionData, parseAbi } from 'viem';
 import type { UserOperation } from '@/utils/kernel-types';
+import { FallbackModeDialog } from '@/components/FallbackModeDialog';
+import { rpcClientManager } from '@/utils/RpcClientManager';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
+import { parsePositiveAmountToUnits, validateEvmAddress } from '@/utils/pathFlowValidation';
+import { trimInputValue } from '@/utils/formValidation';
 
 const Container = styled.div`
   max-width: 600px;
@@ -140,6 +145,19 @@ const ERC20_TRANSFER_ABI = parseAbi([
   'function transfer(address to, uint256 amount) returns (bool)',
 ]);
 
+interface PendingFallbackTransaction {
+  accountAddress: string;
+  chainId: number;
+  target: `0x${string}`;
+  callData: string;
+  ownerPrivateKey: `0x${string}`;
+  signerPrivateKey: `0x${string}`;
+  value: bigint;
+  historyTo: string;
+  historyValue: bigint;
+  historyType: 'transfer' | 'contract';
+}
+
 export const SendTransactionPage = observer(() => {
   const { accountStore } = useStore();
   const navigate = useNavigate();
@@ -156,6 +174,12 @@ export const SendTransactionPage = observer(() => {
   const [password, setPassword] = useState('');
   const [showPasswordInput, setShowPasswordInput] = useState(false);
   const [preview, setPreview] = useState<{ userOp: UserOperation; estimatedFee: bigint } | null>(null);
+  const [showFallbackDialog, setShowFallbackDialog] = useState(false);
+  const [fallbackEstimatedGas, setFallbackEstimatedGas] = useState(0n);
+  const [fallbackGasPrice, setFallbackGasPrice] = useState(0n);
+  const [fallbackAccountBalance, setFallbackAccountBalance] = useState(0n);
+  const [pendingTransaction, setPendingTransaction] =
+    useState<PendingFallbackTransaction | null>(null);
 
   useEffect(() => {
     // 表单变化时清理预览，避免展示过期数据
@@ -164,6 +188,8 @@ export const SendTransactionPage = observer(() => {
 
   useEffect(() => {
     loadTokens();
+    // 仅在当前账户切换时加载代币列表
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountStore.currentAccount]);
 
   const loadTokens = async () => {
@@ -173,21 +199,19 @@ export const SendTransactionPage = observer(() => {
       const chainTokens = await tokenService.getTokens(accountStore.currentAccount.chainId);
       setTokens(chainTokens);
     } catch (error) {
-      console.error('Failed to load tokens:', error);
+      console.error('加载代币列表失败:', error);
     }
   };
 
   const buildTransactionPayload = () => {
     if (!accountStore.currentAccount) {
-      throw new Error('No account selected');
+      throw new Error('请先选择账户');
     }
 
-    if (!to || !to.startsWith('0x') || to.length !== 42) {
-      throw new Error('Invalid recipient address');
-    }
-
-    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
-      throw new Error('Invalid amount');
+    const recipient = trimInputValue(to);
+    const recipientError = validateEvmAddress(recipient, '收款地址');
+    if (recipientError) {
+      throw new Error(recipientError);
     }
 
     let callData: string;
@@ -196,31 +220,31 @@ export const SendTransactionPage = observer(() => {
 
     if (selectedToken === 'native') {
       // 原生代币转账
-      value = BigInt(Math.floor(parseFloat(amount) * 1e18));
+      value = parsePositiveAmountToUnits(amount, 18, '转账金额');
       callData = '0x';
-      target = to as `0x${string}`;
+      target = recipient as `0x${string}`;
     } else {
       // ERC-20 代币转账
       const token = tokens.find((t) => t.address.toLowerCase() === selectedToken.toLowerCase());
       if (!token) {
-        throw new Error('Token not found');
+        throw new Error('未找到代币信息');
       }
 
-      const amountWei = BigInt(Math.floor(parseFloat(amount) * 10 ** token.decimals));
+      const amountWei = parsePositiveAmountToUnits(amount, token.decimals, '转账金额');
       callData = encodeFunctionData({
         abi: ERC20_TRANSFER_ABI,
         functionName: 'transfer',
-        args: [to as `0x${string}`, amountWei],
+        args: [recipient as `0x${string}`, amountWei],
       });
       target = selectedToken as `0x${string}`;
     }
 
-    return { target, callData, value };
+    return { target, callData, value, recipient };
   };
 
   const handlePreview = async () => {
     if (!accountStore.currentAccount) {
-      setError('No account selected');
+      setError('请先选择账户');
       return;
     }
 
@@ -240,14 +264,15 @@ export const SendTransactionPage = observer(() => {
       setShowPasswordInput(false);
     } catch (err) {
       setPreview(null);
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsPreviewing(false);
     }
   };
 
   const handleSend = async () => {
-    if (!password) {
+    const passwordValue = trimInputValue(password);
+    if (!passwordValue) {
       setShowPasswordInput(true);
       setError('请输入密码以解锁私钥');
       return;
@@ -258,12 +283,12 @@ export const SendTransactionPage = observer(() => {
 
     try {
       if (!accountStore.currentAccount) {
-        throw new Error('No account selected');
+        throw new Error('请先选择账户');
       }
 
       // 从安全存储获取签名者私钥
       const ownerAddress = accountStore.currentAccount.owner as `0x${string}`;
-      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, password);
+      const signerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, passwordValue);
 
       if (!signerPrivateKey) {
         setError('无法获取签名者私钥，请检查密码');
@@ -272,59 +297,170 @@ export const SendTransactionPage = observer(() => {
         return;
       }
 
-      const { target, callData, value } = buildTransactionPayload();
+      const { target, callData, value, recipient } = buildTransactionPayload();
+      const historyTo = selectedToken === 'native' ? recipient : selectedToken;
+      const historyValue = selectedToken === 'native' ? value : BigInt(0);
+      const historyType: 'transfer' | 'contract' = selectedToken === 'native' ? 'transfer' : 'contract';
 
-      // 构造转账数据
-      const txHash = await transactionRelayer.sendTransaction(
-        accountStore.currentAccount.address as `0x${string}`,
-        accountStore.currentAccount.chainId,
-        target,
-        callData,
-        signerPrivateKey as `0x${string}`,
-        value
+      try {
+        // 构造转账数据
+        const txHash = await transactionRelayer.sendTransaction(
+          accountStore.currentAccount.address as `0x${string}`,
+          accountStore.currentAccount.chainId,
+          target,
+          callData,
+          signerPrivateKey as `0x${string}`,
+          value
+        );
+
+        // 记录交易历史
+        const { transactionHistoryService } = await import('@/services/TransactionHistoryService');
+        await transactionHistoryService.addTransaction({
+          hash: txHash,
+          chainId: accountStore.currentAccount.chainId,
+          from: accountStore.currentAccount.address,
+          to: historyTo,
+          value: historyValue,
+          status: 'pending',
+          timestamp: Date.now(),
+          type: historyType,
+          data: callData,
+        });
+
+        ErrorHandler.showSuccess(`交易已发送，交易哈希: ${txHash}`);
+        console.log('交易哈希:', txHash);
+        
+        // 清空表单
+        setTo('');
+        setAmount('');
+        setPassword('');
+        setShowPasswordInput(false);
+        setPreview(null);
+        
+        // 跳转到交易历史页面
+        navigate('/transactions');
+      } catch (fallbackError) {
+        // 检查是否是降级模式错误
+        if (fallbackError instanceof FallbackModeError) {
+          // 获取账户余额和 Gas 价格
+          requireChainConfig(accountStore.currentAccount.chainId, ['rpcUrl']);
+
+          const publicClient = rpcClientManager.getPublicClient(accountStore.currentAccount.chainId);
+          const [balance, gasPrice] = await Promise.all([
+            publicClient.getBalance({ address: accountStore.currentAccount.address as `0x${string}` }),
+            publicClient.getGasPrice(),
+          ]);
+
+          // 保存待处理的交易信息
+          setPendingTransaction({
+            accountAddress: accountStore.currentAccount.address,
+            chainId: accountStore.currentAccount.chainId,
+            target,
+            callData,
+            ownerPrivateKey: signerPrivateKey as `0x${string}`,
+            signerPrivateKey: signerPrivateKey as `0x${string}`, // 使用同一个私钥
+            value,
+            historyTo,
+            historyValue,
+            historyType,
+          });
+
+          // 显示降级模式对话框
+          setFallbackEstimatedGas(fallbackError.estimatedGas);
+          setFallbackGasPrice(gasPrice);
+          setFallbackAccountBalance(balance);
+          setShowFallbackDialog(true);
+          setIsSending(false);
+          return;
+        }
+        // 其他错误继续抛出
+        throw fallbackError;
+      }
+
+    } catch (err) {
+      setError(ErrorHandler.handleAndShow(err));
+      console.error('交易发送失败:', err);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  /**
+   * 处理降级模式确认
+   */
+  const handleFallbackConfirm = async () => {
+    if (!pendingTransaction || !accountStore.currentAccount) {
+      setError('交易信息丢失，请重新发送');
+      setShowFallbackDialog(false);
+      return;
+    }
+
+    setIsSending(true);
+    setShowFallbackDialog(false);
+
+    try {
+      // 使用降级模式发送交易
+      const txHash = await transactionRelayer.sendTransactionWithFallback(
+        pendingTransaction.accountAddress as `0x${string}`,
+        pendingTransaction.chainId,
+        pendingTransaction.target as `0x${string}`,
+        pendingTransaction.callData,
+        pendingTransaction.ownerPrivateKey,
+        pendingTransaction.signerPrivateKey,
+        pendingTransaction.value
       );
 
       // 记录交易历史
       const { transactionHistoryService } = await import('@/services/TransactionHistoryService');
       await transactionHistoryService.addTransaction({
         hash: txHash,
-        chainId: accountStore.currentAccount.chainId,
-        from: accountStore.currentAccount.address,
-        to: selectedToken === 'native' ? to : selectedToken,
-        value: selectedToken === 'native' ? value : BigInt(0),
+        chainId: pendingTransaction.chainId,
+        from: pendingTransaction.accountAddress,
+        to: pendingTransaction.historyTo,
+        value: pendingTransaction.historyValue,
         status: 'pending',
         timestamp: Date.now(),
-        type: selectedToken === 'native' ? 'transfer' : 'contract',
-        data: callData,
+        type: pendingTransaction.historyType,
+        data: pendingTransaction.callData,
       });
 
-      alert(`交易已发送！交易哈希: ${txHash}`);
-      console.log('Transaction hash:', txHash);
+      ErrorHandler.showSuccess(`交易已发送（降级模式），交易哈希: ${txHash}`);
+      console.log('交易哈希（降级模式）:', txHash);
       
-      // 清空表单
+      // 清空表单和状态
       setTo('');
       setAmount('');
       setPassword('');
       setShowPasswordInput(false);
       setPreview(null);
+      setPendingTransaction(null);
       
       // 跳转到交易历史页面
       navigate('/transactions');
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
-      console.error('Transaction error:', err);
+      setError(ErrorHandler.handleAndShow(err));
+      console.error('降级模式交易失败:', err);
     } finally {
       setIsSending(false);
     }
+  };
+
+  /**
+   * 处理降级模式取消
+   */
+  const handleFallbackCancel = () => {
+    setShowFallbackDialog(false);
+    setPendingTransaction(null);
+    setError('已取消降级模式发送');
   };
 
   if (!accountStore.currentAccount) {
     return (
       <Container>
         <Card>
-          <Title>No Account</Title>
-          <p>Please create an account first</p>
-          <Button onClick={() => navigate('/wallet/create')}>Create Account</Button>
+          <Title>未选择账户</Title>
+          <p>请先创建或导入账户</p>
+          <Button onClick={() => navigate('/wallet/create')}>去创建账户</Button>
         </Card>
       </Container>
     );
@@ -450,7 +586,16 @@ export const SendTransactionPage = observer(() => {
           {isSending ? '发送中...' : '发送交易'}
         </Button>
       </Card>
+
+      {/* 降级模式确认对话框 */}
+      <FallbackModeDialog
+        open={showFallbackDialog}
+        estimatedGas={fallbackEstimatedGas}
+        gasPrice={fallbackGasPrice}
+        accountBalance={fallbackAccountBalance}
+        onConfirm={handleFallbackConfirm}
+        onCancel={handleFallbackCancel}
+      />
     </Container>
   );
 });
-

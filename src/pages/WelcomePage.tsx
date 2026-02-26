@@ -153,7 +153,7 @@ export const WelcomePage: React.FC = () => {
         navigate('/wallet/create/path-c');
         break;
       default:
-        console.error('Unknown path:', path);
+        console.error('未知路径类型:', path);
     }
   };
 

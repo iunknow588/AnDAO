@@ -72,6 +72,24 @@ describe('ErrorHandler', () => {
     });
   });
 
+  describe('handleAndShow', () => {
+    it('应该返回错误消息并发出全局错误事件', () => {
+      const eventHandler = vi.fn();
+      window.addEventListener('wallet:message', eventHandler as EventListener);
+
+      const message = ErrorHandler.handleAndShow(new Error('Unknown error'));
+
+      expect(message).toBe('Unknown error');
+      expect(eventHandler).toHaveBeenCalledTimes(1);
+
+      const event = eventHandler.mock.calls[0][0] as CustomEvent<{ type: string; message: string }>;
+      expect(event.detail.type).toBe('error');
+      expect(event.detail.message).toBe('Unknown error');
+
+      window.removeEventListener('wallet:message', eventHandler as EventListener);
+    });
+  });
+
   describe('logError', () => {
     it('应该记录错误而不抛出异常', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -126,4 +144,3 @@ describe('WalletError', () => {
     });
   });
 });
-

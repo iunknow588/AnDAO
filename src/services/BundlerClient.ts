@@ -6,8 +6,38 @@
  */
 
 import { UserOperation } from '@/types';
-import type { Hash } from 'viem';
-import { getChainConfigByChainId } from '@/config/chains';
+import type { Address, Hash } from 'viem';
+import { rpcClientManager } from '@/utils/RpcClientManager';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
+
+const ENTRYPOINT_HANDLE_OPS_ABI = [
+  {
+    inputs: [
+      {
+        components: [
+          { name: 'sender', type: 'address' },
+          { name: 'nonce', type: 'uint256' },
+          { name: 'initCode', type: 'bytes' },
+          { name: 'callData', type: 'bytes' },
+          { name: 'callGasLimit', type: 'uint256' },
+          { name: 'verificationGasLimit', type: 'uint256' },
+          { name: 'preVerificationGas', type: 'uint256' },
+          { name: 'maxFeePerGas', type: 'uint256' },
+          { name: 'maxPriorityFeePerGas', type: 'uint256' },
+          { name: 'paymasterAndData', type: 'bytes' },
+          { name: 'signature', type: 'bytes' },
+        ],
+        name: 'ops',
+        type: 'tuple[]',
+      },
+      { name: 'beneficiary', type: 'address' },
+    ],
+    name: 'handleOps',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+] as const;
 
 export class BundlerUnavailableError extends Error {
   code = 'BUNDLER_UNAVAILABLE';
@@ -161,9 +191,11 @@ export class BundlerClient {
   private getEntryPointAddress(chainId?: number): string {
     const targetChainId = chainId || this.currentChainId;
     if (targetChainId) {
-      const chainConfig = getChainConfigByChainId(targetChainId);
-      if (chainConfig?.entryPointAddress) {
+      try {
+        const chainConfig = requireChainConfig(targetChainId, ['entryPointAddress']);
         return chainConfig.entryPointAddress;
+      } catch {
+        // 保留降级路径，避免估算流程因配置缺失直接中断
       }
     }
     // 降级方案：使用标准的 EntryPoint 地址（ERC-4337 v0.6）
@@ -226,7 +258,7 @@ export class BundlerClient {
   /**
    * 格式化 UserOperation 为 Bundler 期望的格式
    */
-  private formatUserOperation(userOp: UserOperation): any {
+  private formatUserOperation(userOp: UserOperation): unknown {
     return {
       sender: userOp.sender,
       nonce: `0x${userOp.nonce.toString(16)}`,
@@ -275,7 +307,7 @@ export class BundlerClient {
   /**
    * 获取 UserOperation 状态
    */
-  async getUserOperationReceipt(userOpHash: Hash): Promise<any> {
+  async getUserOperationReceipt(userOpHash: Hash): Promise<unknown> {
     if (!this.currentBundler) {
       throw new Error('No bundler configured');
     }
@@ -307,7 +339,140 @@ export class BundlerClient {
 
     return result.result;
   }
+
+  /**
+   * 降级模式：直发 EntryPoint + 自付 Gas
+   * 
+   * 当所有 Bundler 不可用时，直接调用 EntryPoint 合约的 handleOps 方法
+   * 用户需要自付 Gas，账户需要有足够的余额
+   * 
+   * 注意：
+   * - 需要用户确认（因为需要自付 Gas）
+   * - 需要检查账户余额
+   * - 需要重新计算 userOpHash（防止签名重放）
+   * 
+   * @param userOp UserOperation 对象
+   * @param chainId 链 ID
+   * @param signerPrivateKey 签名者私钥（用于发送交易，需要账户有余额）
+   * @returns 交易哈希
+   */
+  async sendUserOperationDirectly(
+    userOp: UserOperation,
+    chainId: number,
+    signerPrivateKey: `0x${string}`
+  ): Promise<Hash> {
+    const chainConfig = requireChainConfig(chainId, ['entryPointAddress', 'rpcUrl']);
+
+    const entryPointAddress = chainConfig.entryPointAddress as Address;
+    const rpcUrl = chainConfig.rpcUrl;
+
+    // 导入必要的模块
+    const { createWalletClient, http } = await import('viem');
+    const { privateKeyToAccount } = await import('viem/accounts');
+
+    // 创建钱包客户端
+    const account = privateKeyToAccount(signerPrivateKey);
+    const walletClient = createWalletClient({
+      account,
+      chain: rpcClientManager.getChain(chainId),
+      transport: http(rpcUrl),
+    });
+
+    // 重新计算 userOpHash（防止签名重放）
+    // 注意：如果切换了 RPC，需要重新计算 hash，但签名是基于原始 hash 的
+    // 这里我们假设 userOp 已经正确签名，直接使用
+    const { getUserOpHash } = await import('@/utils/eip712');
+    getUserOpHash(userOp, entryPointAddress, chainId);
+
+    const txHash = await walletClient.writeContract({
+      address: entryPointAddress,
+      abi: ENTRYPOINT_HANDLE_OPS_ABI,
+      functionName: 'handleOps',
+      args: [
+        [this.formatUserOperationForEntryPoint(userOp)],
+        account.address, // beneficiary（接收 Gas 退款）
+      ],
+      gas: userOp.callGasLimit + userOp.verificationGasLimit + userOp.preVerificationGas + BigInt(50000),
+      chain: rpcClientManager.getChain(chainId),
+    });
+
+    return txHash;
+  }
+
+  /**
+   * 格式化 UserOperation 为 EntryPoint 期望的格式
+   * 
+   * EntryPoint.handleOps 接收的 UserOperation 格式与 Bundler 略有不同
+   */
+  private formatUserOperationForEntryPoint(userOp: UserOperation): UserOperation {
+    return {
+      sender: userOp.sender,
+      nonce: userOp.nonce,
+      initCode: userOp.initCode,
+      callData: userOp.callData,
+      callGasLimit: userOp.callGasLimit,
+      verificationGasLimit: userOp.verificationGasLimit,
+      preVerificationGas: userOp.preVerificationGas,
+      maxFeePerGas: userOp.maxFeePerGas,
+      maxPriorityFeePerGas: userOp.maxPriorityFeePerGas,
+      paymasterAndData: userOp.paymasterAndData,
+      signature: userOp.signature,
+    };
+  }
+
+  /**
+   * 降级模式：估算直发 EntryPoint 的 Gas
+   * 
+   * 估算直接调用 EntryPoint.handleOps 所需的 Gas
+   * 
+   * @param userOp UserOperation 对象
+   * @param chainId 链 ID
+   * @returns 估算的 Gas 限制
+   */
+  async estimateDirectGas(
+    userOp: UserOperation,
+    chainId: number
+  ): Promise<bigint> {
+    const chainConfig = requireChainConfig(chainId, ['entryPointAddress', 'rpcUrl']);
+
+    const entryPointAddress = chainConfig.entryPointAddress as Address;
+    const rpcUrl = chainConfig.rpcUrl;
+
+    // 导入必要的模块
+    const { createPublicClient, http, encodeFunctionData } = await import('viem');
+
+    // 创建公共客户端
+    const publicClient = createPublicClient({
+      chain: rpcClientManager.getChain(chainId),
+      transport: http(rpcUrl),
+    });
+
+    // 构造 handleOps 调用数据
+    const callData = encodeFunctionData({
+      abi: ENTRYPOINT_HANDLE_OPS_ABI,
+      functionName: 'handleOps',
+      args: [
+        [this.formatUserOperationForEntryPoint(userOp)],
+        userOp.sender, // beneficiary（临时使用 sender 地址）
+      ],
+    });
+
+    try {
+      // 估算 Gas
+      const gasEstimate = await publicClient.estimateGas({
+        to: entryPointAddress,
+        data: callData,
+        account: userOp.sender as Address,
+      });
+
+      // 添加缓冲（20%）
+      return gasEstimate + (gasEstimate * BigInt(20)) / BigInt(100);
+    } catch (error) {
+      console.warn('Gas estimation failed, using fallback:', error);
+      // 降级方案：使用 UserOperation 的 Gas 限制加上缓冲
+      return userOp.callGasLimit + userOp.verificationGasLimit + userOp.preVerificationGas + BigInt(100000);
+    }
+  }
 }
 
 export const bundlerClient = new BundlerClient();
-

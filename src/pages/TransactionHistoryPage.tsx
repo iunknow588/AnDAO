@@ -4,7 +4,7 @@
  * 显示交易历史记录
  */
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores';
@@ -108,6 +108,8 @@ export const TransactionHistoryPage = observer(() => {
 
   useEffect(() => {
     loadTransactions();
+    // 仅在账户切换时刷新交易历史
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountStore.currentAccount]);
 
   const loadTransactions = async () => {
@@ -120,7 +122,7 @@ export const TransactionHistoryPage = observer(() => {
       });
       setTransactions(txs);
     } catch (error) {
-      console.error('Failed to load transactions:', error);
+      console.error('加载交易记录失败:', error);
     } finally {
       setIsLoading(false);
     }
@@ -201,4 +203,3 @@ export const TransactionHistoryPage = observer(() => {
     </Container>
   );
 });
-

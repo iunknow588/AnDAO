@@ -18,7 +18,6 @@ import type { Address, Hex } from 'viem';
 import { StorageKey } from '@/types';
 
 describe('社交恢复流程 E2E', () => {
-  const testOwnerAddress = '0x1234567890123456789012345678901234567890' as Address;
   const testSignerPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex;
   const testChainId = 5000; // Mantle testnet
   const guardian1Address = '0x1111111111111111111111111111111111111111' as Address;
@@ -56,15 +55,15 @@ describe('社交恢复流程 E2E', () => {
 
     // Mock GuardianService 的链上调用入口（其内部会调用 transactionRelayer / RPC）
     const dummyTxHash = ('0x' + '22'.repeat(32)) as Hex;
-    vi.spyOn(guardianService, 'addGuardian').mockResolvedValue(dummyTxHash as any);
-    vi.spyOn(guardianService, 'removeGuardian').mockResolvedValue(dummyTxHash as any);
-    vi.spyOn(guardianService, 'voteForRecovery').mockResolvedValue(dummyTxHash as any);
+    vi.spyOn(guardianService, 'addGuardian').mockResolvedValue(dummyTxHash);
+    vi.spyOn(guardianService, 'removeGuardian').mockResolvedValue(dummyTxHash);
+    vi.spyOn(guardianService, 'voteForRecovery').mockResolvedValue(dummyTxHash);
     vi.spyOn(guardianService, 'initiateRecovery').mockImplementation(async (
       acct: Address,
       chainId: number,
       newOwner: Address
     ) => {
-      const txHash = dummyTxHash as any as string;
+      const txHash = dummyTxHash as string;
       const recoveryId = `recovery_${txHash}`;
 
       // 与真实实现一致：写入本地恢复请求列表
@@ -149,7 +148,7 @@ describe('社交恢复流程 E2E', () => {
       testChainId,
       newOwnerAddress,
       undefined,
-      testSignerPrivateKey as any
+      testSignerPrivateKey as `0x${string}`
     );
 
     // 3. 验证交易哈希
@@ -169,7 +168,7 @@ describe('社交恢复流程 E2E', () => {
       testChainId,
       newOwnerAddress,
       undefined,
-      testSignerPrivateKey as any
+      testSignerPrivateKey as `0x${string}`
     );
 
     // 2. 读取本地恢复请求
@@ -198,7 +197,7 @@ describe('社交恢复流程 E2E', () => {
       testChainId,
       newOwnerAddress,
       undefined,
-      testSignerPrivateKey as any
+      testSignerPrivateKey as `0x${string}`
     );
 
     // 3. 守护人投票（模拟）
@@ -206,7 +205,7 @@ describe('社交恢复流程 E2E', () => {
       accountAddress,
       testChainId,
       recoveryId,
-      testSignerPrivateKey as any
+      testSignerPrivateKey as `0x${string}`
     );
     expect(txHash1).toBeDefined();
 
@@ -214,9 +213,8 @@ describe('社交恢复流程 E2E', () => {
       accountAddress,
       testChainId,
       recoveryId,
-      testSignerPrivateKey as any
+      testSignerPrivateKey as `0x${string}`
     );
     expect(txHash2).toBeDefined();
   });
 });
-

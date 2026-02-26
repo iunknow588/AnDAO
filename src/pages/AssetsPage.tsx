@@ -4,12 +4,14 @@
  * 参考 Keplr 钱包的资产展示设计，但代码完全独立实现
  */
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores';
 import { createPublicClient, http, formatEther } from 'viem';
-import { getChainConfigByChainId } from '@/config/chains';
+import { CHAIN_GROUPS } from '@/config/chains';
+import { getChainNativeSymbol, requireChainConfig } from '@/utils/chainConfigValidation';
+import { ErrorHandler } from '@/utils/errors';
 
 const Container = styled.div`
   max-width: 800px;
@@ -119,6 +121,8 @@ export const AssetsPage = observer(() => {
     if (accountStore.currentAccount) {
       loadBalance();
     }
+    // 这里仅在账户切换时刷新余额，避免 loadBalance 引用变化导致重复请求
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountStore.currentAccount]);
 
   const loadBalance = async () => {
@@ -130,22 +134,42 @@ export const AssetsPage = observer(() => {
     setError(null);
 
     try {
-      const chainConfig = getChainConfigByChainId(accountStore.currentAccount.chainId);
-      if (!chainConfig) {
-        throw new Error('Chain config not found');
-      }
+      const account = accountStore.currentAccount;
+      const chainId = account.chainId;
+      const address = account.address as `0x${string}`;
+      
+      console.log('[AssetsPage] 加载余额:', {
+        chainId,
+        address,
+        accountChainId: account.chainId,
+      });
+
+      const chainConfig = requireChainConfig(chainId, ['rpcUrl']);
+
+      console.log('[AssetsPage] 使用链配置:', {
+        chainId: chainConfig.chainId,
+        name: chainConfig.name,
+        rpcUrl: chainConfig.rpcUrl,
+      });
 
       const publicClient = createPublicClient({
         transport: http(chainConfig.rpcUrl),
       });
 
+      console.log('[AssetsPage] 从 RPC 查询余额:', chainConfig.rpcUrl);
       const balanceWei = await publicClient.getBalance({
-        address: accountStore.currentAccount.address as `0x${string}`,
+        address: address,
+      });
+
+      console.log('[AssetsPage] 余额查询结果:', {
+        balanceWei: balanceWei.toString(),
+        balanceEther: formatEther(balanceWei),
       });
 
       setBalance(formatEther(balanceWei));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load balance');
+      console.error('[AssetsPage] 加载余额失败:', err);
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsLoading(false);
     }
@@ -155,8 +179,8 @@ export const AssetsPage = observer(() => {
     return (
       <Container>
         <Card>
-          <Title>No Account</Title>
-          <p>Please create an account first</p>
+          <Title>未选择账户</Title>
+          <p>请先创建或导入账户</p>
         </Card>
       </Container>
     );
@@ -171,11 +195,22 @@ export const AssetsPage = observer(() => {
           value={accountStore.currentAccount.chainId}
           onChange={(e) => {
             const chainId = parseInt(e.target.value);
-            accountStore.setCurrentChain(chainId as any);
+            accountStore.setCurrentChain(chainId);
+            // 切换链后重新加载余额
+            setTimeout(() => {
+              loadBalance();
+            }, 100);
           }}
         >
-          <option value={5000}>Mantle</option>
-          <option value={5001}>Mantle Testnet</option>
+          {CHAIN_GROUPS.map((group) => (
+            <optgroup key={group.key} label={group.label}>
+              {group.networks.map((network) => (
+                <option key={network.chainId} value={network.chainId}>
+                  {network.name}
+                </option>
+              ))}
+            </optgroup>
+          ))}
         </ChainSelector>
 
         <AddressDisplay>
@@ -189,7 +224,7 @@ export const AssetsPage = observer(() => {
             <>
               <BalanceAmount>{balance}</BalanceAmount>
               <BalanceLabel>
-                {getChainConfigByChainId(accountStore.currentAccount.chainId)?.nativeCurrency.symbol || 'ETH'}
+                {getChainNativeSymbol(accountStore.currentAccount.chainId)}
               </BalanceLabel>
             </>
           )}
@@ -204,4 +239,3 @@ export const AssetsPage = observer(() => {
     </Container>
   );
 });
-

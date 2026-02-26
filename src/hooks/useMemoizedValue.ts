@@ -6,6 +6,8 @@
 
 import { useMemo, useCallback, DependencyList } from 'react';
 
+type AnyFn = (...args: unknown[]) => unknown;
+
 /**
  * 记忆化值（useMemo 的便捷封装）
  */
@@ -13,16 +15,18 @@ export function useMemoizedValue<T>(
   factory: () => T,
   deps: DependencyList
 ): T {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(factory, deps);
 }
 
 /**
  * 记忆化回调（useCallback 的便捷封装）
  */
-export function useMemoizedCallback<T extends (...args: any[]) => any>(
+export function useMemoizedCallback<T extends AnyFn>(
   callback: T,
   deps: DependencyList
 ): T {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   return useCallback(callback, deps) as T;
 }
 
@@ -34,14 +38,12 @@ export function useMemoizedCallback<T extends (...args: any[]) => any>(
  */
 export function useDeepMemo<T>(
   factory: () => T,
-  deps: any[]
+  deps: unknown[]
 ): T {
   const serializedDeps = useMemo(
     () => JSON.stringify(deps),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    deps.map(dep => JSON.stringify(dep))
+    [deps]
   );
 
-  return useMemo(factory, [serializedDeps]);
+  return useMemo(factory, [factory, serializedDeps]);
 }
-

@@ -27,7 +27,7 @@ export class SecurityVault {
     const key = await crypto.subtle.deriveKey(
       {
         name: 'PBKDF2',
-        salt: salt,
+        salt: Uint8Array.from(salt),
         iterations: 100000,
         hash: 'SHA-256',
       },
@@ -55,10 +55,10 @@ export class SecurityVault {
     const encrypted = await crypto.subtle.encrypt(
       {
         name: 'AES-GCM',
-        iv: iv,
+        iv: Uint8Array.from(iv),
       },
       key,
-      dataBuffer
+      Uint8Array.from(dataBuffer)
     );
 
     return {
@@ -81,10 +81,10 @@ export class SecurityVault {
     const decrypted = await crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv: ivBuffer,
+        iv: Uint8Array.from(ivBuffer),
       },
       key,
-      encryptedBuffer
+      Uint8Array.from(encryptedBuffer)
     );
 
     const decoder = new TextDecoder();
@@ -94,7 +94,7 @@ export class SecurityVault {
   /**
    * 存储加密数据
    */
-  async setItem(key: string, value: any, password: string): Promise<void> {
+  async setItem(key: string, value: unknown, password: string): Promise<void> {
     if (!this.encryptionKey) {
       // 如果没有密钥，从密码派生
       const salt = this.getOrCreateSalt(key);
@@ -232,8 +232,8 @@ export class SecurityVault {
   /**
    * ArrayBuffer 转 Base64
    */
-  private arrayBufferToBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
+  private arrayBufferToBase64(buffer: ArrayBuffer | Uint8Array): string {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     let binary = '';
     for (let i = 0; i < bytes.byteLength; i++) {
       binary += String.fromCharCode(bytes[i]);
@@ -255,4 +255,3 @@ export class SecurityVault {
 }
 
 export const securityVault = new SecurityVault();
-

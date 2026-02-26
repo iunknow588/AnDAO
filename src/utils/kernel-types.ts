@@ -16,9 +16,9 @@ import type { Address, Hex } from 'viem';
  * 如果导入失败，返回 null（使用降级方案）
  */
 async function tryImportKernelABI(): Promise<{
-  factoryABI: any[] | null;
-  kernelABI: any[] | null;
-  entryPointABI: any[] | null;
+  factoryABI: readonly unknown[] | null;
+  kernelABI: readonly unknown[] | null;
+  entryPointABI: readonly unknown[] | null;
 }> {
   try {
     // 尝试从 kernel-dev 导入
@@ -125,7 +125,7 @@ const ENTRYPOINT_ABI_FALLBACK = [
  * 
  * 优先从 kernel-dev 导入，失败时使用降级方案
  */
-export async function getKernelFactoryABI(): Promise<readonly any[]> {
+export async function getKernelFactoryABI(): Promise<readonly unknown[]> {
   const imported = await tryImportKernelABI();
   return imported.factoryABI || KERNEL_FACTORY_ABI_FALLBACK;
 }
@@ -133,7 +133,7 @@ export async function getKernelFactoryABI(): Promise<readonly any[]> {
 /**
  * 获取 Kernel ABI
  */
-export async function getKernelABI(): Promise<readonly any[]> {
+export async function getKernelABI(): Promise<readonly unknown[]> {
   const imported = await tryImportKernelABI();
   return imported.kernelABI || KERNEL_ABI_FALLBACK;
 }
@@ -141,7 +141,7 @@ export async function getKernelABI(): Promise<readonly any[]> {
 /**
  * 获取 EntryPoint ABI
  */
-export async function getEntryPointABI(): Promise<readonly any[]> {
+export async function getEntryPointABI(): Promise<readonly unknown[]> {
   const imported = await tryImportKernelABI();
   return imported.entryPointABI || ENTRYPOINT_ABI_FALLBACK;
 }
@@ -177,4 +177,3 @@ export interface UserOperation {
   paymasterAndData: Hex;
   signature: Hex;
 }
-

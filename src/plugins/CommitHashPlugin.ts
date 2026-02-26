@@ -5,9 +5,29 @@
  */
 
 import type { Address, Hash, Hex } from 'viem';
-import { IPlugin, PluginType, PluginExecutionContext, PluginExecutionResult } from '@/types/plugins';
+import { IPlugin, PluginType } from '@/types/plugins';
 import { createPublicClient, http } from 'viem';
 import { getChainConfigByChainId } from '@/config/chains';
+
+type CommitmentStatus = {
+  isCommitted: boolean;
+  isRevealed: boolean;
+};
+
+function toCommitmentStatus(value: unknown): CommitmentStatus {
+  if (
+    Array.isArray(value) &&
+    value.length >= 3 &&
+    typeof value[1] === 'boolean' &&
+    typeof value[2] === 'boolean'
+  ) {
+    return {
+      isCommitted: value[1],
+      isRevealed: value[2],
+    };
+  }
+  throw new Error('Invalid getCommitmentStatus response');
+}
 
 /**
  * 比特承诺插件
@@ -38,7 +58,7 @@ export class CommitHashPlugin {
    * 提交承诺哈希
    */
   async commit(
-    accountAddress: Address,
+    _accountAddress: Address,
     chainId: number,
     commitmentHash: Hash
   ): Promise<Hex> {
@@ -70,7 +90,7 @@ export class CommitHashPlugin {
    * 揭示数据
    */
   async reveal(
-    accountAddress: Address,
+    _accountAddress: Address,
     chainId: number,
     data: Hex
   ): Promise<Hex> {
@@ -123,7 +143,7 @@ export class CommitHashPlugin {
    * ```
    */
   async canReveal(
-    accountAddress: Address,
+    _accountAddress: Address,
     chainId: number,
     commitmentHash: Hash
   ): Promise<boolean> {
@@ -192,7 +212,8 @@ export class CommitHashPlugin {
         });
         
         // 如果已提交且未揭示，则可以揭示
-        return (status as any).isCommitted && !(status as any).isRevealed;
+        const commitmentStatus = toCommitmentStatus(status);
+        return commitmentStatus.isCommitted && !commitmentStatus.isRevealed;
       } catch (fallbackError) {
         console.error('Error checking commitment status:', fallbackError);
         return false;
@@ -212,4 +233,3 @@ export class CommitHashPlugin {
     return hashHex as Hash;
   }
 }
-

@@ -17,7 +17,7 @@ export interface LogEntry {
   message: string;
   timestamp: number;
   context?: string;
-  data?: any;
+  data?: unknown;
   error?: Error;
 }
 
@@ -43,7 +43,7 @@ class Logger {
   /**
    * 记录日志
    */
-  private log(level: LogLevel, message: string, context?: string, data?: any, error?: Error): void {
+  private log(level: LogLevel, message: string, context?: string, data?: unknown, error?: Error): void {
     if (level < this.level) {
       return;
     }
@@ -86,28 +86,28 @@ class Logger {
   /**
    * 调试日志
    */
-  debug(message: string, context?: string, data?: any): void {
+  debug(message: string, context?: string, data?: unknown): void {
     this.log(LogLevel.DEBUG, message, context, data);
   }
 
   /**
    * 信息日志
    */
-  info(message: string, context?: string, data?: any): void {
+  info(message: string, context?: string, data?: unknown): void {
     this.log(LogLevel.INFO, message, context, data);
   }
 
   /**
    * 警告日志
    */
-  warn(message: string, context?: string, data?: any): void {
+  warn(message: string, context?: string, data?: unknown): void {
     this.log(LogLevel.WARN, message, context, data);
   }
 
   /**
    * 错误日志
    */
-  error(message: string, context?: string, error?: Error, data?: any): void {
+  error(message: string, context?: string, error?: Error, data?: unknown): void {
     this.log(LogLevel.ERROR, message, context, data, error);
   }
 
@@ -165,4 +165,3 @@ export const logger = new Logger();
 if (import.meta.env.DEV) {
   logger.setLevel(LogLevel.DEBUG);
 }
-

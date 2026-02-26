@@ -13,7 +13,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   fullWidth?: boolean;
 }
 
-const StyledButton = styled.button<ButtonProps>`
+const StyledButton = styled.button<{ $variant?: 'primary' | 'secondary' | 'danger'; $size?: 'small' | 'medium' | 'large'; $fullWidth?: boolean }>`
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -25,7 +25,7 @@ const StyledButton = styled.button<ButtonProps>`
   font-family: inherit;
 
   ${(props) => {
-    switch (props.variant) {
+    switch (props.$variant) {
       case 'primary':
         return `
           background: #4c6ef5;
@@ -62,7 +62,7 @@ const StyledButton = styled.button<ButtonProps>`
   }}
 
   ${(props) => {
-    switch (props.size) {
+    switch (props.$size) {
       case 'small':
         return `
           padding: 8px 16px;
@@ -81,7 +81,7 @@ const StyledButton = styled.button<ButtonProps>`
     }
   }}
 
-  ${(props) => props.fullWidth && 'width: 100%;'}
+  ${(props) => props.$fullWidth && 'width: 100%;'}
 
   &:disabled {
     background: #ccc;
@@ -95,7 +95,7 @@ const StyledButton = styled.button<ButtonProps>`
   }
 `;
 
-export const Button: React.FC<ButtonProps> = ({ children, ...props }) => {
-  return <StyledButton {...props}>{children}</StyledButton>;
+export const Button: React.FC<ButtonProps> = ({ children, variant, size, fullWidth, ...props }) => {
+  return <StyledButton $variant={variant} $size={size} $fullWidth={fullWidth} {...props}>{children}</StyledButton>;
 };
 

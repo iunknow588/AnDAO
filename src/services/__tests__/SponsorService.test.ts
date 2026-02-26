@@ -4,9 +4,8 @@
  * @module services/__tests__/SponsorService.test
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { SponsorService } from '../SponsorService';
-import { ApplicationStatus } from '@/types/sponsor';
 import { StorageProviderType } from '@/interfaces/IStorageProvider';
 import { Address } from 'viem';
 

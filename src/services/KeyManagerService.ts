@@ -91,8 +91,6 @@ export class KeyManagerService {
     try {
       // 方案1: 使用会话密钥派生加密密钥
       // 从SecurityVault获取会话密钥（如果已缓存）
-      const storageKey = `${this.KEY_STORAGE_PREFIX}${address.toLowerCase()}`;
-      
       // 尝试从会话存储中获取缓存的私钥
       // 注意：这需要在登录时缓存私钥（需要用户输入一次密码）
       const sessionKey = `session_key_${session.userId}_${address.toLowerCase()}`;
@@ -216,8 +214,6 @@ export class KeyManagerService {
    * @returns 私钥是否存在
    */
   async hasPrivateKey(address: Address): Promise<boolean> {
-    const storageKey = `${this.KEY_STORAGE_PREFIX}${address.toLowerCase()}`;
-    
     try {
       // 尝试从存储中读取（使用一个测试密码）
       // 如果键存在但密码错误，会返回null，但不会抛出错误
@@ -269,4 +265,3 @@ export class KeyManagerService {
 }
 
 export const keyManagerService = new KeyManagerService();
-

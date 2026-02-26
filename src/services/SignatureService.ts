@@ -11,13 +11,19 @@
 
 import type { Address, Hex } from 'viem';
 import { Wallet } from 'ethers';
-import { hashMessage, TypedDataDomain, TypedDataField, keccak256, toBytes } from 'viem';
+import type { TypedDataDomain } from 'viem';
+import { keccak256, toBytes } from 'viem';
+
+type TypedDataField = {
+  name: string;
+  type: string;
+};
 
 export interface TypedData {
   domain: TypedDataDomain;
   types: Record<string, TypedDataField[]>;
   primaryType: string;
-  message: Record<string, any>;
+  message: Record<string, unknown>;
 }
 
 /**
@@ -50,16 +56,9 @@ export class SignatureService {
     const messageHash = keccak256(messageBytes);
     
     // 使用 viem 进行签名（不添加 EIP-191 前缀）
-    const { sign } = await import('viem');
-    const { privateKeyToAccount } = await import('viem/accounts');
-    
-    const account = privateKeyToAccount(privateKey);
-    const signature = await sign({
-      hash: messageHash,
-      privateKey: privateKey,
-    });
-    
-    return signature;
+    const wallet = new Wallet(privateKey);
+    const signature = wallet.signingKey.sign(messageHash).serialized;
+    return signature as Hex;
   }
 
   /**
@@ -171,4 +170,3 @@ export class SignatureService {
 }
 
 export const signatureService = new SignatureService();
-

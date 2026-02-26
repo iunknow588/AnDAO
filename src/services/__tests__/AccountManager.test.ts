@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AccountManager } from '../AccountManager';
 import { storageAdapter } from '@/adapters/StorageAdapter';
 import { StorageKey } from '@/types';
+import { AccountCreationPath, UserType } from '@/types';
 import type { Address } from 'viem';
 
 // Mock viem before模块加载，避免 hoist 变量未定义问题
@@ -141,9 +142,9 @@ describe('AccountManager', () => {
       );
       expect(setCall).toBeDefined();
       if (setCall) {
-        const accounts = setCall[1] as any[];
-        expect(accounts[0].status).toBe('deployed');
-        expect(accounts[0].deployedAt).toBeDefined();
+        const accounts = setCall[1] as Array<{ status?: string; deployedAt?: number }>;
+        expect(accounts[0]?.status).toBe('deployed');
+        expect(accounts[0]?.deployedAt).toBeDefined();
       }
     });
   });
@@ -253,5 +254,70 @@ describe('AccountManager', () => {
       expect(exists).toBe(true);
     });
   });
-});
 
+  describe('path conversion guards', () => {
+    it('upgradePathA 应在 userType 与 creationPath 不一致时拒绝升级', async () => {
+      const accountAddress = '0x1234567890123456789012345678901234567890' as Address;
+      const chainId = 5000;
+
+      await accountManager.importAccount({
+        address: accountAddress,
+        chainId,
+        owner: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        createdAt: Date.now(),
+        status: 'deployed',
+        deployedAt: Date.now(),
+        userType: UserType.SIMPLE,
+        creationPath: AccountCreationPath.PATH_B_STANDARD,
+      });
+
+      await expect(accountManager.upgradePathA(accountAddress, chainId)).rejects.toThrow(
+        'Account is not a path A user, cannot upgrade'
+      );
+    });
+
+    it('convertPathAToB 应在 creationPath 不匹配时拒绝转换', async () => {
+      const accountAddress = '0x2234567890123456789012345678901234567890' as Address;
+      const chainId = 5000;
+
+      await accountManager.importAccount({
+        address: accountAddress,
+        chainId,
+        owner: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        createdAt: Date.now(),
+        status: 'deployed',
+        deployedAt: Date.now(),
+        userType: UserType.SIMPLE,
+        creationPath: AccountCreationPath.PATH_C_SPONSOR,
+      });
+
+      await expect(
+        accountManager.convertPathAToB(
+          accountAddress,
+          chainId,
+          '0x1234567890123456789012345678901234567890123456789012345678901234'
+        )
+      ).rejects.toThrow('Account is not a path A user, cannot convert to path B');
+    });
+
+    it('convertPathBToC 应在 userType 不匹配时拒绝转换', async () => {
+      const accountAddress = '0x3234567890123456789012345678901234567890' as Address;
+      const chainId = 5000;
+
+      await accountManager.importAccount({
+        address: accountAddress,
+        chainId,
+        owner: '0xcccccccccccccccccccccccccccccccccccccccc',
+        createdAt: Date.now(),
+        status: 'deployed',
+        deployedAt: Date.now(),
+        userType: UserType.SIMPLE,
+        creationPath: AccountCreationPath.PATH_B_STANDARD,
+      });
+
+      await expect(
+        accountManager.convertPathBToC(accountAddress, chainId, 'sponsor-1')
+      ).rejects.toThrow('Account is not a path B user, cannot convert to path C');
+    });
+  });
+});

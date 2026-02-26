@@ -15,6 +15,11 @@ export interface Session {
   expiresAt: number;
 }
 
+interface AuthTestData {
+  verified: boolean;
+  createdAt: number;
+}
+
 export class AuthService {
   private session: Session | null = null;
   private readonly SESSION_DURATION = 30 * 60 * 1000; // 30分钟
@@ -122,7 +127,7 @@ export class AuthService {
     
     try {
       const testKey = `test_${userId}`;
-      const testData = await securityVault.getItem(testKey, password);
+      const testData = await securityVault.getItem<AuthTestData>(testKey, password);
       
       if (testData === null) {
         // 密码错误（解密失败）
@@ -206,24 +211,34 @@ export class AuthService {
   }
 
   /**
-   * 修改密码
+   * 修改密码（带进度回调和错误处理）
    * 
-   * 重新加密所有使用旧密码加密的数据
+   * 重新加密所有使用旧密码加密的数据，支持进度显示和回滚机制
    * 
    * 实现流程：
    * 1. 验证旧密码
    * 2. 获取所有使用旧密码加密的数据键
-   * 3. 使用旧密码解密数据
-   * 4. 使用新密码重新加密数据
-   * 5. 更新存储
+   * 3. 备份旧数据（用于回滚）
+   * 4. 使用旧密码解密数据
+   * 5. 使用新密码重新加密数据
+   * 6. 更新存储
+   * 7. 如果失败，回滚到旧数据
    * 
    * ⚠️ **注意**: 这是一个耗时操作，可能需要较长时间
    * 
    * @param oldPassword 旧密码
    * @param newPassword 新密码
+   * @param onProgress 进度回调函数（可选），参数为 (current, total, key)
    * @returns 是否修改成功
    */
-  async changePassword(oldPassword: string, newPassword: string): Promise<boolean> {
+  async changePassword(
+    oldPassword: string,
+    newPassword: string,
+    onProgress?: (current: number, total: number, key: string) => void
+  ): Promise<boolean> {
+    const backupData: Map<string, unknown> = new Map();
+    const reencryptedKeys: string[] = [];
+    
     try {
       // 验证旧密码
       if (!this.isAuthenticated()) {
@@ -238,7 +253,7 @@ export class AuthService {
       // 验证旧密码（通过尝试解密测试数据）
       const testKey = `test_${session.userId}`;
       try {
-        const testData = await securityVault.getItem(testKey, oldPassword);
+        const testData = await securityVault.getItem<AuthTestData>(testKey, oldPassword);
         if (testData === null || !testData.verified) {
           // 密码错误
           return false;
@@ -265,25 +280,98 @@ export class AuthService {
         }
       }
 
-      // 重新加密所有数据
-      for (const key of encryptedKeys) {
+      const total = encryptedKeys.length;
+      
+      // 步骤1: 备份所有旧数据
+      for (let i = 0; i < encryptedKeys.length; i++) {
+        const key = encryptedKeys[i];
         try {
-          const data = await securityVault.getItem(key, oldPassword);
-          if (data !== null) {
-            await securityVault.setItem(key, data, newPassword);
+          // 备份原始加密数据（从存储适配器直接获取，不解密）
+          const stored = await storageAdapter.get<{ encrypted: string; iv: string; salt: string }>(key);
+          if (stored) {
+            backupData.set(key, stored);
           }
         } catch (error) {
-          console.warn(`Failed to reencrypt key ${key}:`, error);
+          console.warn(`Failed to backup key ${key}:`, error);
         }
       }
 
-      // 更新测试数据（使用新密码）
-      await securityVault.setItem(testKey, { verified: true }, newPassword);
+      // 步骤2: 重新加密所有数据
+      for (let i = 0; i < encryptedKeys.length; i++) {
+        const key = encryptedKeys[i];
+        try {
+          // 报告进度
+          if (onProgress) {
+            onProgress(i + 1, total, key);
+          }
+
+          // 使用旧密码解密数据
+          const data = await securityVault.getItem(key, oldPassword);
+          if (data !== null) {
+            // 使用新密码重新加密
+            await securityVault.setItem(key, data, newPassword);
+            reencryptedKeys.push(key);
+          }
+        } catch (error) {
+          console.error(`Failed to reencrypt key ${key}:`, error);
+          // 如果重加密失败，回滚已处理的数据
+          await this.rollbackReencryption(reencryptedKeys, backupData);
+          throw new Error(`重加密失败，已回滚。失败键: ${key}`);
+        }
+      }
+
+      // 步骤3: 更新测试数据（使用新密码）
+      try {
+        await securityVault.setItem(testKey, { verified: true }, newPassword);
+      } catch (error) {
+        console.error('Failed to update test key:', error);
+        // 如果测试数据更新失败，回滚所有数据
+        await this.rollbackReencryption(reencryptedKeys, backupData);
+        throw new Error('更新测试数据失败，已回滚');
+      }
+
+      // 报告完成
+      if (onProgress) {
+        onProgress(total, total, '');
+      }
 
       return true;
     } catch (error) {
       console.error('Change password failed:', error);
+      // 尝试回滚
+      try {
+        await this.rollbackReencryption(reencryptedKeys, backupData);
+      } catch (rollbackError) {
+        console.error('Rollback failed:', rollbackError);
+        // 回滚失败，这是严重错误，需要用户手动恢复
+        throw new Error('密码修改失败且回滚失败，请使用旧密码尝试恢复数据');
+      }
       return false;
+    }
+  }
+
+  /**
+   * 回滚重加密操作
+   * 
+   * 将已重加密的数据恢复到旧密码加密的状态
+   * 
+   * @param reencryptedKeys 已重加密的键列表
+   * @param backupData 备份的原始数据
+   */
+  private async rollbackReencryption(
+    reencryptedKeys: string[],
+    backupData: Map<string, unknown>
+  ): Promise<void> {
+    for (const key of reencryptedKeys) {
+      const backup = backupData.get(key);
+      if (backup) {
+        try {
+          // 恢复备份数据
+          await storageAdapter.set(key, backup);
+        } catch (error) {
+          console.error(`Failed to rollback key ${key}:`, error);
+        }
+      }
     }
   }
 
@@ -377,4 +465,3 @@ export class AuthService {
 }
 
 export const authService = new AuthService();
-

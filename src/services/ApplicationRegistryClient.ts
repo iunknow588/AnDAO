@@ -7,12 +7,11 @@
  * @module services/ApplicationRegistryClient
  */
 
-import { Address, Hash, createPublicClient, createWalletClient, http, PublicClient, WalletClient } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { getChainConfigByChainId } from '@/config/chains';
+import { Address, Hash, type Chain, type PublicClient, type WalletClient } from 'viem';
 import { ErrorHandler, ErrorCode } from '@/utils/errors';
 import { logger } from '@/utils/logger';
 import { StorageProviderType } from '@/interfaces/IStorageProvider';
+import { rpcClientManager } from '@/utils/RpcClientManager';
 
 const LOG_CONTEXT = 'ApplicationRegistryClient';
 
@@ -147,12 +146,47 @@ export enum ContractStorageProviderType {
   CUSTOM = 2,
 }
 
+export interface ApplicationRegistryRecord {
+  applicationId: string;
+  accountAddress: Address;
+  ownerAddress: Address;
+  eoaAddress: Address;
+  sponsorId: Address;
+  chainId: bigint;
+  storageIdentifier: string;
+  storageType: number;
+  status: number;
+  reviewStorageIdentifier: string;
+  createdAt: bigint;
+  reviewedAt: bigint;
+  deployedAt: bigint;
+}
+
+export interface SponsorRegistryRecord {
+  sponsorAddress: Address;
+  gasAccountAddress: Address;
+  name: string;
+  description: string;
+  storageType: number;
+  isActive: boolean;
+  registeredAt: bigint;
+}
+
+export interface ListApplicationsBySponsorParams {
+  chainId: number;
+  sponsorAddress: Address;
+}
+
+type SponsorApplicationsResolver = (
+  params: ListApplicationsBySponsorParams
+) => Promise<ApplicationRegistryRecord[]>;
+
 /**
  * ApplicationRegistry客户端类
  */
 export class ApplicationRegistryClient {
   private contractAddress: Address | null = null;
-  private publicClients: Map<number, PublicClient> = new Map();
+  private sponsorApplicationsResolver: SponsorApplicationsResolver | null = null;
   
   /**
    * 初始化客户端
@@ -167,44 +201,46 @@ export class ApplicationRegistryClient {
   /**
    * 获取公共客户端
    * 
+   * 使用统一的 RpcClientManager 管理客户端实例，避免重复创建
+   * 
    * @param chainId 链ID
    * @returns 公共客户端
    */
   private getPublicClient(chainId: number): PublicClient {
-    let client = this.publicClients.get(chainId);
-    if (!client) {
-      const chainConfig = getChainConfigByChainId(chainId);
-      if (!chainConfig) {
-        throw new Error(`Unsupported chain: ${chainId}`);
-      }
-      
-      client = createPublicClient({
-        transport: http(chainConfig.rpcUrl),
-      });
-      this.publicClients.set(chainId, client);
-    }
-    
-    return client;
+    return rpcClientManager.getPublicClient(chainId);
   }
   
   /**
    * 获取钱包客户端
+   * 
+   * 使用统一的 RpcClientManager 管理客户端实例，避免重复创建
    * 
    * @param chainId 链ID
    * @param privateKey 私钥
    * @returns 钱包客户端
    */
   private getWalletClient(chainId: number, privateKey: `0x${string}`): WalletClient {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Unsupported chain: ${chainId}`);
-    }
-    
-    const account = privateKeyToAccount(privateKey);
-    return createWalletClient({
-      account,
-      transport: http(chainConfig.rpcUrl),
-    });
+    return rpcClientManager.getWalletClient(chainId, privateKey);
+  }
+
+  /**
+   * 获取链配置（用于显式传入写操作）
+   */
+  private getChain(chainId: number): Chain {
+    return rpcClientManager.getChain(chainId);
+  }
+
+  /**
+   * 设置“按赞助商查询申请”解析器（可选）
+   *
+   * 用于接入子图/后端索引服务；未设置时会自动降级为空结果。
+   */
+  setSponsorApplicationsResolver(resolver: SponsorApplicationsResolver | null): void {
+    this.sponsorApplicationsResolver = resolver;
+  }
+
+  isSponsorApplicationsResolverConfigured(): boolean {
+    return this.sponsorApplicationsResolver !== null;
   }
   
   /**
@@ -243,6 +279,7 @@ export class ApplicationRegistryClient {
       const contractStorageType = this.convertStorageType(storageType);
       
       const hash = await walletClient.writeContract({
+        account: walletClient.account ?? null,
         address: this.contractAddress,
         abi: APPLICATION_REGISTRY_ABI,
         functionName: 'registerApplication',
@@ -256,8 +293,7 @@ export class ApplicationRegistryClient {
           storageIdentifier,
           contractStorageType,
         ],
-        // viem@2 需要显式提供链参数；这里使用 null 以沿用当前 transport 对应链配置
-        chain: null,
+        chain: this.getChain(chainId),
       });
       
       logger.info('Application registered on chain', LOG_CONTEXT, { applicationId, hash });
@@ -293,6 +329,7 @@ export class ApplicationRegistryClient {
       const walletClient = this.getWalletClient(chainId, privateKey);
       
       const hash = await walletClient.writeContract({
+        account: walletClient.account ?? null,
         address: this.contractAddress,
         abi: APPLICATION_REGISTRY_ABI,
         functionName: 'updateApplicationStatus',
@@ -301,7 +338,7 @@ export class ApplicationRegistryClient {
           status,
           reviewStorageIdentifier || '',
         ],
-        chain: null,
+        chain: this.getChain(chainId),
       });
       
       logger.info('Application status updated', LOG_CONTEXT, { applicationId, status, hash });
@@ -343,6 +380,7 @@ export class ApplicationRegistryClient {
       const contractStorageType = this.convertStorageType(storageType);
       
       const hash = await walletClient.writeContract({
+        account: walletClient.account ?? null,
         address: this.contractAddress,
         abi: APPLICATION_REGISTRY_ABI,
         functionName: 'registerSponsor',
@@ -353,7 +391,7 @@ export class ApplicationRegistryClient {
           description,
           contractStorageType,
         ],
-        chain: null,
+        chain: this.getChain(chainId),
       });
       
       logger.info('Sponsor registered on chain', LOG_CONTEXT, { sponsorAddress, hash });
@@ -389,6 +427,7 @@ export class ApplicationRegistryClient {
       const walletClient = this.getWalletClient(chainId, privateKey);
       
       const hash = await walletClient.writeContract({
+        account: walletClient.account ?? null,
         address: this.contractAddress,
         abi: APPLICATION_REGISTRY_ABI,
         functionName: 'updateSponsorRules',
@@ -397,7 +436,7 @@ export class ApplicationRegistryClient {
           maxGasPerAccount,
           autoApprove,
         ],
-        chain: null,
+        chain: this.getChain(chainId),
       });
       
       logger.info('Sponsor rules updated', LOG_CONTEXT, { hash });
@@ -415,7 +454,7 @@ export class ApplicationRegistryClient {
    * @param applicationId 申请ID
    * @returns 申请索引数据
    */
-  async getApplication(chainId: number, applicationId: string): Promise<any> {
+  async getApplication(chainId: number, applicationId: string): Promise<ApplicationRegistryRecord | null> {
     if (!this.contractAddress) {
       throw new Error('ApplicationRegistry contract address not set');
     }
@@ -429,8 +468,27 @@ export class ApplicationRegistryClient {
         functionName: 'getApplication',
         args: [applicationId],
       });
-      
-      return result;
+
+      if (Array.isArray(result) && result.length >= 13) {
+        const tuple = result as readonly unknown[];
+        return {
+          applicationId: String(tuple[0] ?? ''),
+          accountAddress: tuple[1] as Address,
+          ownerAddress: tuple[2] as Address,
+          eoaAddress: tuple[3] as Address,
+          sponsorId: tuple[4] as Address,
+          chainId: BigInt(tuple[5] as bigint | number | string),
+          storageIdentifier: String(tuple[6] ?? ''),
+          storageType: Number(tuple[7] ?? 0),
+          status: Number(tuple[8] ?? 0),
+          reviewStorageIdentifier: String(tuple[9] ?? ''),
+          createdAt: BigInt(tuple[10] as bigint | number | string),
+          reviewedAt: BigInt(tuple[11] as bigint | number | string),
+          deployedAt: BigInt(tuple[12] as bigint | number | string),
+        };
+      }
+
+      return null;
     } catch (error) {
       ErrorHandler.handleError(error, ErrorCode.NETWORK_ERROR);
       throw error;
@@ -444,7 +502,7 @@ export class ApplicationRegistryClient {
    * @param sponsorAddress 赞助商地址
    * @returns 赞助商信息
    */
-  async getSponsor(chainId: number, sponsorAddress: Address): Promise<any> {
+  async getSponsor(chainId: number, sponsorAddress: Address): Promise<SponsorRegistryRecord | null> {
     if (!this.contractAddress) {
       throw new Error('ApplicationRegistry contract address not set');
     }
@@ -458,8 +516,21 @@ export class ApplicationRegistryClient {
         functionName: 'getSponsor',
         args: [sponsorAddress],
       });
-      
-      return result;
+
+      if (Array.isArray(result) && result.length >= 7) {
+        const tuple = result as readonly unknown[];
+        return {
+          sponsorAddress: tuple[0] as Address,
+          gasAccountAddress: tuple[1] as Address,
+          name: String(tuple[2] ?? ''),
+          description: String(tuple[3] ?? ''),
+          storageType: Number(tuple[4] ?? 0),
+          isActive: Boolean(tuple[5]),
+          registeredAt: BigInt(tuple[6] as bigint | number | string),
+        };
+      }
+
+      return null;
     } catch (error) {
       ErrorHandler.handleError(error, ErrorCode.NETWORK_ERROR);
       throw error;
@@ -492,6 +563,36 @@ export class ApplicationRegistryClient {
     } catch (error) {
       ErrorHandler.handleError(error, ErrorCode.NETWORK_ERROR);
       return false;
+    }
+  }
+
+  /**
+   * 按赞助商查询申请列表（可插拔索引入口）
+   *
+   * 注意：当前链上合约 ABI 未暴露按赞助商批量查询接口；
+   * 若未配置 resolver，会返回空数组并由上层执行降级逻辑。
+   */
+  async listApplicationsBySponsor(
+    chainId: number,
+    sponsorAddress: Address
+  ): Promise<ApplicationRegistryRecord[]> {
+    if (!this.sponsorApplicationsResolver) {
+      logger.warn('listApplicationsBySponsor fallback: resolver not configured', LOG_CONTEXT, {
+        chainId,
+        sponsorAddress,
+      });
+      return [];
+    }
+
+    try {
+      return await this.sponsorApplicationsResolver({ chainId, sponsorAddress });
+    } catch (error) {
+      logger.warn('listApplicationsBySponsor resolver failed, fallback to empty list', LOG_CONTEXT, {
+        chainId,
+        sponsorAddress,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
     }
   }
   

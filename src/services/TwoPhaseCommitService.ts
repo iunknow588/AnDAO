@@ -6,14 +6,15 @@
  */
 
 import type { Address, Hash, Hex } from 'viem';
-import { createPublicClient, http, encodeFunctionData } from 'viem';
-import { TwoPhaseCommitTask, TwoPhaseCommitTaskStatus } from '@/types';
-import { getChainConfigByChainId } from '@/config/chains';
+import { encodeFunctionData } from 'viem';
+import { TwoPhaseCommitTask } from '@/types';
 import { storageAdapter } from '@/adapters/StorageAdapter';
 import { StorageKey } from '@/types';
 import { transactionRelayer } from './TransactionRelayer';
 import { accountManager } from './AccountManager';
 import { twoPhaseCommitEncryption } from './TwoPhaseCommitEncryption';
+import { rpcClientManager } from '@/utils/RpcClientManager';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
 
 /**
  * 两阶段提交合约标准 ABI
@@ -63,6 +64,26 @@ const TWO_PHASE_COMMIT_ABI = [
   },
 ] as const;
 
+type CommitmentStatus = {
+  isCommitted: boolean;
+  isRevealed: boolean;
+};
+
+function toCommitmentStatus(value: unknown): CommitmentStatus {
+  if (
+    Array.isArray(value) &&
+    value.length >= 3 &&
+    typeof value[1] === 'boolean' &&
+    typeof value[2] === 'boolean'
+  ) {
+    return {
+      isCommitted: value[1],
+      isRevealed: value[2],
+    };
+  }
+  throw new Error('Invalid getCommitmentStatus response');
+}
+
 /**
  * 两阶段提交服务
  */
@@ -83,8 +104,10 @@ export class TwoPhaseCommitService {
         await monitoringServiceWorker.init();
         
         // 监听 Service Worker 消息
-        monitoringServiceWorker.onMessage('TASK_READY_TO_REVEAL', (data: { taskId: string }) => {
-          this.handleTaskReadyToReveal(data.taskId);
+        monitoringServiceWorker.onMessage<{ taskId: string }>('TASK_READY_TO_REVEAL', (data) => {
+          if (data && typeof data.taskId === 'string') {
+            this.handleTaskReadyToReveal(data.taskId);
+          }
         });
         
         // 监听来自 Service Worker 的检查请求
@@ -138,7 +161,7 @@ export class TwoPhaseCommitService {
     }
 
     // 计算 SHA-256 哈希
-    const hashBuffer = await crypto.subtle.digest('SHA-256', dataBytes);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', Uint8Array.from(dataBytes));
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashHex = `0x${hashArray.map(b => b.toString(16).padStart(2, '0')).join('')}`;
 
@@ -156,7 +179,6 @@ export class TwoPhaseCommitService {
    * @param firstPhaseTxHash 第一阶段交易哈希
    * @param originalData 原始数据（需要加密保存，用于后续揭示）
    * @param accountAddress 账户地址（可选，如果不提供则从 AccountManager 获取）
-   * @param signerPrivateKey 签名者私钥（用于后续 reveal，可选）
    * @returns 创建的任务
    */
   async createTask(
@@ -165,8 +187,7 @@ export class TwoPhaseCommitService {
     commitmentHash: Hash,
     firstPhaseTxHash: Hash,
     originalData: string | Hex,
-    accountAddress?: Address,
-    signerPrivateKey?: `0x${string}`
+    accountAddress?: Address
   ): Promise<TwoPhaseCommitTask> {
     // 如果没有提供账户地址，从 AccountManager 获取
     let finalAccountAddress = accountAddress;
@@ -313,7 +334,7 @@ export class TwoPhaseCommitService {
       const txHash = await transactionRelayer.sendTransaction(
         accountAddress,
         task.chainId,
-        task.contractAddress,
+        task.contractAddress as Address,
         callData,
         signerPrivateKey
       );
@@ -354,19 +375,16 @@ export class TwoPhaseCommitService {
     if (this.useServiceWorker) {
       try {
         const { monitoringServiceWorker } = await import('@/serviceWorker/MonitoringServiceWorker');
-        const chainConfig = getChainConfigByChainId(task.chainId);
-        
-        if (chainConfig) {
-          await monitoringServiceWorker.startMonitoring({
-            taskId: task.id,
-            chainId: task.chainId,
-            contractAddress: task.contractAddress,
-            commitmentHash: task.commitmentHash,
-            rpcUrl: chainConfig.rpcUrl,
-            interval: 5000,
-          });
-          return;
-        }
+        const chainConfig = requireChainConfig(task.chainId, ['rpcUrl']);
+        await monitoringServiceWorker.startMonitoring({
+          taskId: task.id,
+          chainId: task.chainId,
+          contractAddress: task.contractAddress,
+          commitmentHash: task.commitmentHash,
+          rpcUrl: chainConfig.rpcUrl,
+          interval: 5000,
+        });
+        return;
       } catch (error) {
         console.warn('[TwoPhaseCommitService] Service Worker monitoring failed, using fallback:', error);
         this.useServiceWorker = false;
@@ -457,16 +475,17 @@ export class TwoPhaseCommitService {
   
   /**
    * 根据参数检查是否可以揭示
+   * 
+   * 使用缓存的 PublicClient 实例，避免重复创建
    */
   private async checkCanRevealByParams(
     chainId: number,
     contractAddress: string,
     commitmentHash: string,
-    rpcUrl: string
+    _rpcUrl: string
   ): Promise<boolean> {
-    const publicClient = createPublicClient({
-      transport: http(rpcUrl),
-    });
+    // 使用 RpcClientManager 获取缓存的 PublicClient 实例
+    const publicClient = rpcClientManager.getPublicClient(chainId);
 
     try {
       const canReveal = await publicClient.readContract({
@@ -487,7 +506,8 @@ export class TwoPhaseCommitService {
           args: [commitmentHash as `0x${string}`],
         });
 
-        return (status as any).isCommitted && !(status as any).isRevealed;
+        const commitmentStatus = toCommitmentStatus(status);
+        return commitmentStatus.isCommitted && !commitmentStatus.isRevealed;
       } catch (fallbackError) {
         console.error('Error checking commitment status:', fallbackError);
         return false;
@@ -525,23 +545,21 @@ export class TwoPhaseCommitService {
    * @param task 两阶段提交任务
    * @returns 是否可以揭示
    */
+  /**
+   * 检查是否可以揭示
+   * 
+   * 使用缓存的 PublicClient 实例，避免重复创建
+   */
   private async checkCanReveal(task: TwoPhaseCommitTask): Promise<boolean> {
-    const chainConfig = getChainConfigByChainId(task.chainId);
-    if (!chainConfig) {
-      return false;
-    }
-
-    const publicClient = createPublicClient({
-      transport: http(chainConfig.rpcUrl),
-    });
+    const publicClient = rpcClientManager.getPublicClient(task.chainId);
 
     try {
       // 调用合约的 canReveal 方法
       const canReveal = await publicClient.readContract({
-        address: task.contractAddress,
+        address: task.contractAddress as Address,
         abi: TWO_PHASE_COMMIT_ABI,
         functionName: 'canReveal',
-        args: [task.commitmentHash],
+        args: [task.commitmentHash as Hash],
       });
 
       return canReveal as boolean;
@@ -550,14 +568,15 @@ export class TwoPhaseCommitService {
       // 如果合约不支持 canReveal 方法，尝试使用 getCommitmentStatus
       try {
         const status = await publicClient.readContract({
-          address: task.contractAddress,
+          address: task.contractAddress as Address,
           abi: TWO_PHASE_COMMIT_ABI,
           functionName: 'getCommitmentStatus',
-          args: [task.commitmentHash],
+          args: [task.commitmentHash as Hash],
         });
         
         // 如果已提交且未揭示，则可以揭示
-        return (status as any).isCommitted && !(status as any).isRevealed;
+        const commitmentStatus = toCommitmentStatus(status);
+        return commitmentStatus.isCommitted && !commitmentStatus.isRevealed;
       } catch (fallbackError) {
         console.error('Error checking commitment status:', fallbackError);
         return false;
@@ -611,4 +630,3 @@ export class TwoPhaseCommitService {
 }
 
 export const twoPhaseCommitService = new TwoPhaseCommitService();
-

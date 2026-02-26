@@ -5,11 +5,12 @@
  * 直接使用 kernel-dev 中的 Factory 合约接口
  */
 
-import { createPublicClient, http, type Address, type Hash, encodeFunctionData } from 'viem';
-import { AccountInfo } from '@/types';
-import { getChainConfigByChainId } from '@/config/chains';
+import { type Address, type Hash, encodeFunctionData } from 'viem';
+import { AccountInfo, StorageKey, AccountCreationPath, UserType } from '@/types';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
 import { storageAdapter } from '@/adapters/StorageAdapter';
-import { StorageKey } from '@/types';
+import { rpcClientManager } from '@/utils/RpcClientManager';
+import { keyManagerService } from './KeyManagerService';
 
 export class AccountManager {
   private accounts: Map<string, AccountInfo> = new Map();
@@ -35,20 +36,17 @@ export class AccountManager {
     if (storedAccounts) {
       // 迁移旧数据：为没有status字段的账户添加status
       const migratedAccounts: AccountInfo[] = storedAccounts.map((account) => {
-        // 为了兼容早期存储结构，在迁移过程中使用宽松的 any 类型，
-        // 保证运行时行为不变，同时避免类型系统将旧数据推断为 never。
-        const acc = account as any;
         // 如果账户没有status字段，需要检查是否已部署
-        if (!('status' in acc)) {
+        if (!account.status) {
           // 默认设置为deployed（假设已存在的账户都是已部署的）
           // 实际部署状态会在使用时通过accountExists检查
           return {
-            ...acc,
+            ...account,
             status: 'deployed' as const,
-            deployedAt: acc.createdAt, // 使用创建时间作为部署时间
+            deployedAt: account.createdAt, // 使用创建时间作为部署时间
           } as AccountInfo;
         }
-        return acc as AccountInfo;
+        return account;
       });
 
       // 保存迁移后的数据
@@ -72,12 +70,9 @@ export class AccountManager {
    * @returns 预测的账户地址
    */
   async predictAccountAddress(owner: Address, chainId: number): Promise<Address> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig || !chainConfig.kernelFactoryAddress) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
-    }
+    const chainConfig = requireChainConfig(chainId, ['kernelFactoryAddress', 'rpcUrl']);
 
-    const initData = await this.buildInitData(owner, chainId);
+    const initData = this.buildInitData(owner, chainId);
     const salt = await this.generateSalt(owner, chainId);
     
     const { predictAccountAddress } = await import('@/utils/kernel');
@@ -126,14 +121,7 @@ export class AccountManager {
     chainId: number,
     signerPrivateKey: `0x${string}`
   ): Promise<{ address: Address; txHash?: Hash }> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Unsupported chain: ${chainId}`);
-    }
-
-    if (!chainConfig.kernelFactoryAddress) {
-      throw new Error(`Kernel Factory address not configured for chain: ${chainId}`);
-    }
+    const chainConfig = requireChainConfig(chainId, ['kernelFactoryAddress', 'rpcUrl']);
 
     // 预测地址（用于幂等性检查）
     const predictedAddress = await this.predictAccountAddress(owner, chainId);
@@ -151,7 +139,7 @@ export class AccountManager {
     }
 
     // 构造初始化数据
-    const initData = await this.buildInitData(owner, chainId);
+    const initData = this.buildInitData(owner, chainId);
     const salt = await this.generateSalt(owner, chainId);
 
     // 部署账户
@@ -161,7 +149,8 @@ export class AccountManager {
       initData,
       salt,
       chainConfig.rpcUrl,
-      signerPrivateKey
+      signerPrivateKey,
+      chainId
     );
 
     // 保存已部署账户信息
@@ -203,6 +192,8 @@ export class AccountManager {
    * 根据 Kernel 的实际初始化逻辑构造
    * 使用 MultiChainValidator 作为根验证器
    * 
+   * 注意：此方法是同步的，所有操作都是纯计算，不需要异步
+   * 
    * Kernel.initialize(
    *   ValidationId _rootValidator,
    *   IHook hook,
@@ -211,11 +202,8 @@ export class AccountManager {
    *   bytes[] calldata initConfig
    * )
    */
-  private async buildInitData(owner: Address, chainId: number): Promise<`0x${string}`> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
-    }
+  private buildInitData(owner: Address, chainId: number): `0x${string}` {
+    const chainConfig = requireChainConfig(chainId);
 
     // 从链配置中获取 MultiChainValidator 地址
     const multiChainValidatorAddress = chainConfig.multiChainValidatorAddress;
@@ -334,6 +322,11 @@ export class AccountManager {
     await storageAdapter.set(StorageKey.ACCOUNTS, accounts);
   }
 
+  private async saveAccount(account: AccountInfo): Promise<void> {
+    this.accounts.set(this.getAccountKey(account.address, account.chainId), account);
+    await this.saveAccounts();
+  }
+
   /**
    * 导入或更新账户信息
    * 
@@ -359,23 +352,265 @@ export class AccountManager {
 
   /**
    * 检查账户是否存在
+   * 
+   * 使用缓存的 PublicClient 实例，避免重复创建
    */
   async accountExists(address: Address, chainId: number): Promise<boolean> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
+    try {
+      // 使用 RpcClientManager 获取缓存的 PublicClient 实例
+      const publicClient = rpcClientManager.getPublicClient(chainId);
+
+      // 检查账户合约是否已部署（检查 code 是否为空）
+      const code = await publicClient.getBytecode({ address });
+      return code !== undefined && code !== '0x';
+    } catch (error) {
+      // 如果链配置不存在或其他错误，返回 false
       return false;
     }
+  }
 
-    const publicClient = createPublicClient({
-      transport: http(chainConfig.rpcUrl),
-    });
+  /**
+   * 路径A升级为路径B
+   * 
+   * 当路径A用户（UserType.SIMPLE）的守护人数量达到3个时，可以升级为路径B（UserType.STANDARD）
+   * 
+   * 升级内容：
+   * - 用户类型：UserType.SIMPLE → UserType.STANDARD
+   * - 创建路径：PATH_A_SIMPLE → PATH_B_STANDARD
+   * - 保留历史：originalCreationPath = PATH_A_SIMPLE
+   * - 获得EOA能力：可以创建EOA账户，自主支付Gas（可选）
+   * 
+   * 注意：
+   * - 升级后不降级：即使守护人减少，也保持标准用户身份
+   * - EOA创建是可选的：用户可以选择立即创建EOA，也可以稍后创建
+   * 
+   * @param accountAddress 账户地址
+   * @param chainId 链ID
+   * @param createEOA 是否立即创建EOA账户（可选，默认为false）
+   * @param eoaPrivateKey EOA私钥（如果createEOA为true，必须提供）
+   * @returns 更新后的账户信息
+   */
+  async upgradePathA(
+    accountAddress: Address,
+    chainId: number,
+    createEOA: boolean = false,
+    eoaPrivateKey?: `0x${string}`
+  ): Promise<AccountInfo> {
+    const account = await this.getAccountByAddress(accountAddress, chainId);
+    if (!account) {
+      throw new Error(`Account not found: ${accountAddress}`);
+    }
 
-    // 检查账户合约是否已部署（检查 code 是否为空）
-    const code = await publicClient.getBytecode({ address });
-    return code !== undefined && code !== '0x';
+    // 检查是否为路径A用户
+    const userType = account.userType;
+    const creationPath = account.creationPath;
+
+    if (userType !== UserType.SIMPLE || creationPath !== AccountCreationPath.PATH_A_SIMPLE) {
+      throw new Error('Account is not a path A user, cannot upgrade');
+    }
+
+    // 如果已经升级过，直接返回
+    if (account.originalCreationPath && account.originalCreationPath !== AccountCreationPath.PATH_A_SIMPLE) {
+      return account;
+    }
+
+    // 更新账户信息
+    const upgradedAccount: AccountInfo = {
+      ...account,
+      // 更新用户类型和创建路径
+      userType: UserType.STANDARD,
+      creationPath: AccountCreationPath.PATH_B_STANDARD,
+      originalCreationPath: AccountCreationPath.PATH_A_SIMPLE,
+    };
+
+    // 如果用户选择立即创建EOA
+    if (createEOA && eoaPrivateKey) {
+      const eoaAddress = keyManagerService.getAddressFromPrivateKey(eoaPrivateKey);
+      
+      // 添加EOA地址到账户信息
+      upgradedAccount.eoaAddress = eoaAddress;
+    }
+
+    // 保存更新后的账户信息
+    await this.saveAccount(upgradedAccount);
+
+    return upgradedAccount;
+  }
+
+  /**
+   * 路径转换：路径A → 路径B（添加EOA账户）
+   * 
+   * 将路径A用户（UserType.SIMPLE）转换为路径B用户（UserType.STANDARD）
+   * 通过添加EOA账户实现，使路径A用户获得自主支付Gas的能力
+   * 
+   * 转换内容：
+   * - 用户类型：UserType.SIMPLE → UserType.STANDARD
+   * - 创建路径：PATH_A_SIMPLE → PATH_B_STANDARD
+   * - 保留历史：originalCreationPath = PATH_A_SIMPLE
+   * - 添加EOA地址：eoaAddress = 新创建的EOA地址
+   * 
+   * @param accountAddress 账户地址
+   * @param chainId 链ID
+   * @param eoaPrivateKey EOA私钥（必需，用于创建EOA账户）
+   * @returns 更新后的账户信息
+   */
+  async convertPathAToB(
+    accountAddress: Address,
+    chainId: number,
+    eoaPrivateKey: `0x${string}`
+  ): Promise<AccountInfo> {
+    const account = await this.getAccountByAddress(accountAddress, chainId);
+    if (!account) {
+      throw new Error(`Account not found: ${accountAddress}`);
+    }
+
+    // 检查是否为路径A用户
+    const userType = account.userType;
+    const creationPath = account.creationPath;
+
+    if (userType !== UserType.SIMPLE || creationPath !== AccountCreationPath.PATH_A_SIMPLE) {
+      throw new Error('Account is not a path A user, cannot convert to path B');
+    }
+
+    // 获取EOA地址
+    const eoaAddress = keyManagerService.getAddressFromPrivateKey(eoaPrivateKey);
+
+    // 更新账户信息
+    const convertedAccount: AccountInfo = {
+      ...account,
+      userType: UserType.STANDARD,
+      creationPath: AccountCreationPath.PATH_B_STANDARD,
+      originalCreationPath: AccountCreationPath.PATH_A_SIMPLE,
+      eoaAddress: eoaAddress,
+    };
+
+    // 保存更新后的账户信息
+    await this.saveAccount(convertedAccount);
+
+    return convertedAccount;
+  }
+
+  /**
+   * 路径转换：路径A → 路径C（注册成为赞助商）
+   * 
+   * 将路径A用户转换为路径C用户（赞助商）
+   * 需要先完成赞助商注册流程，然后更新账户信息
+   * 
+   * 转换内容：
+   * - 用户类型：UserType.SIMPLE → UserType.SPONSOR
+   * - 创建路径：PATH_A_SIMPLE → PATH_C_SPONSOR
+   * - 保留历史：originalCreationPath = PATH_A_SIMPLE
+   * - 添加赞助商ID：sponsorId = 注册后的赞助商ID
+   * - 添加EOA地址：eoaAddress = Gas支付账户地址
+   * 
+   * 注意：此方法仅更新账户信息，实际的赞助商注册需要通过SponsorService完成
+   * 
+   * @param accountAddress 账户地址
+   * @param chainId 链ID
+   * @param sponsorId 赞助商ID（从SponsorService.registerOnChain获取）
+   * @param gasAccountPrivateKey Gas支付账户私钥（用于获取EOA地址）
+   * @returns 更新后的账户信息
+   */
+  async convertPathAToC(
+    accountAddress: Address,
+    chainId: number,
+    sponsorId: string,
+    gasAccountPrivateKey: `0x${string}`
+  ): Promise<AccountInfo> {
+    const account = await this.getAccountByAddress(accountAddress, chainId);
+    if (!account) {
+      throw new Error(`Account not found: ${accountAddress}`);
+    }
+
+    // 检查是否为路径A用户
+    const userType = account.userType;
+    const creationPath = account.creationPath;
+
+    if (userType !== UserType.SIMPLE || creationPath !== AccountCreationPath.PATH_A_SIMPLE) {
+      throw new Error('Account is not a path A user, cannot convert to path C');
+    }
+
+    // 获取Gas账户地址
+    const eoaAddress = keyManagerService.getAddressFromPrivateKey(gasAccountPrivateKey);
+
+    // 更新账户信息
+    const convertedAccount: AccountInfo = {
+      ...account,
+      userType: UserType.SPONSOR,
+      creationPath: AccountCreationPath.PATH_C_SPONSOR,
+      originalCreationPath: AccountCreationPath.PATH_A_SIMPLE,
+      sponsorId: sponsorId,
+      eoaAddress: eoaAddress,
+    };
+
+    // 保存更新后的账户信息
+    await this.saveAccount(convertedAccount);
+
+    return convertedAccount;
+  }
+
+  /**
+   * 路径转换：路径B → 路径C（注册成为赞助商）
+   * 
+   * 将路径B用户转换为路径C用户（赞助商）
+   * 需要先完成赞助商注册流程，然后更新账户信息
+   * 
+   * 转换内容：
+   * - 用户类型：UserType.STANDARD → UserType.SPONSOR
+   * - 创建路径：PATH_B_STANDARD → PATH_C_SPONSOR
+   * - 保留历史：originalCreationPath = PATH_B_STANDARD
+   * - 添加赞助商ID：sponsorId = 注册后的赞助商ID
+   * - 保留EOA地址：eoaAddress（如果已有，保持不变；如果没有，使用Gas账户地址）
+   * 
+   * 注意：此方法仅更新账户信息，实际的赞助商注册需要通过SponsorService完成
+   * 
+   * @param accountAddress 账户地址
+   * @param chainId 链ID
+   * @param sponsorId 赞助商ID（从SponsorService.registerOnChain获取）
+   * @param gasAccountPrivateKey Gas支付账户私钥（可选，如果账户已有EOA地址则不需要）
+   * @returns 更新后的账户信息
+   */
+  async convertPathBToC(
+    accountAddress: Address,
+    chainId: number,
+    sponsorId: string,
+    gasAccountPrivateKey?: `0x${string}`
+  ): Promise<AccountInfo> {
+    const account = await this.getAccountByAddress(accountAddress, chainId);
+    if (!account) {
+      throw new Error(`Account not found: ${accountAddress}`);
+    }
+
+    // 检查是否为路径B用户
+    const userType = account.userType;
+    const creationPath = account.creationPath;
+
+    if (userType !== UserType.STANDARD || creationPath !== AccountCreationPath.PATH_B_STANDARD) {
+      throw new Error('Account is not a path B user, cannot convert to path C');
+    }
+
+    // 确定EOA地址
+    let eoaAddress = account.eoaAddress;
+    if (!eoaAddress && gasAccountPrivateKey) {
+      eoaAddress = keyManagerService.getAddressFromPrivateKey(gasAccountPrivateKey);
+    }
+
+    // 更新账户信息
+    const convertedAccount: AccountInfo = {
+      ...account,
+      userType: UserType.SPONSOR,
+      creationPath: AccountCreationPath.PATH_C_SPONSOR,
+      originalCreationPath: AccountCreationPath.PATH_B_STANDARD,
+      sponsorId: sponsorId,
+      eoaAddress: eoaAddress || account.eoaAddress,
+    };
+
+    // 保存更新后的账户信息
+    await this.saveAccount(convertedAccount);
+
+    return convertedAccount;
   }
 }
 
 
 export const accountManager = new AccountManager();
-

@@ -5,7 +5,7 @@
  * 只渲染可见区域的列表项
  */
 
-import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import React, { useMemo, useRef, useState, useCallback } from 'react';
 import styled from 'styled-components';
 
 interface VirtualListProps<T> {
@@ -77,9 +77,6 @@ export function VirtualList<T>({
   // 总高度
   const totalHeight = items.length * itemHeight;
 
-  // 偏移量（用于占位）
-  const offsetY = visibleRange.start * itemHeight;
-
   // 处理滚动
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const newScrollTop = e.currentTarget.scrollTop;
@@ -110,4 +107,3 @@ export function VirtualList<T>({
     </Container>
   );
 }
-

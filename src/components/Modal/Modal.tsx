@@ -6,7 +6,6 @@
 
 import React, { useEffect } from 'react';
 import styled from 'styled-components';
-import { Button } from '../Button';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -164,20 +163,15 @@ export const Modal: React.FC<ModalProps> = ({
   return (
     <Overlay isOpen={isOpen} onClick={onClose}>
       <ModalContainer size={size} onClick={(e) => e.stopPropagation()}>
-        {(title || onClose) && (
-          <ModalHeader>
-            {title && <ModalTitle>{title}</ModalTitle>}
-            {onClose && (
-              <CloseButton onClick={onClose} aria-label="Close">
-                ×
-              </CloseButton>
-            )}
-          </ModalHeader>
-        )}
+        <ModalHeader>
+          {title ? <ModalTitle>{title}</ModalTitle> : <span />}
+          <CloseButton onClick={onClose} aria-label="Close">
+            ×
+          </CloseButton>
+        </ModalHeader>
         <ModalBody>{children}</ModalBody>
         {footer && <ModalFooter>{footer}</ModalFooter>}
       </ModalContainer>
     </Overlay>
   );
 };
-

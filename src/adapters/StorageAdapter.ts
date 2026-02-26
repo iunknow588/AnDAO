@@ -5,8 +5,6 @@
  * 用于适配 Web 环境与扩展环境的差异
  */
 
-import { StorageKey } from '@/types';
-
 export interface IStorageAdapter {
   get<T>(key: string): Promise<T | null>;
   set<T>(key: string, value: T): Promise<void>;
@@ -172,4 +170,3 @@ export class LocalStorageAdapter implements IStorageAdapter {
 // 默认存储适配器（IndexedDB）
 export const storageAdapter = new IndexedDBStorageAdapter();
 export const configStorage = new LocalStorageAdapter();
-

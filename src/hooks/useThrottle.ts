@@ -6,6 +6,8 @@
 
 import { useRef, useCallback } from 'react';
 
+type AnyFn = (...args: unknown[]) => unknown;
+
 /**
  * 节流回调 Hook
  * 
@@ -13,7 +15,7 @@ import { useRef, useCallback } from 'react';
  * @param delay 节流延迟时间（毫秒）
  * @returns 节流后的回调函数
  */
-export function useThrottle<T extends (...args: any[]) => any>(
+export function useThrottle<T extends AnyFn>(
   callback: T,
   delay: number
 ): T {
@@ -46,4 +48,3 @@ export function useThrottle<T extends (...args: any[]) => any>(
 
   return throttledCallback;
 }
-

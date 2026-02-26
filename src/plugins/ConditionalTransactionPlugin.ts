@@ -32,7 +32,7 @@ export interface Condition {
   /**
    * 条件参数
    */
-  params: Record<string, any>;
+  params: Record<string, unknown>;
 
   /**
    * 比较操作符
@@ -42,8 +42,15 @@ export interface Condition {
   /**
    * 期望值
    */
-  expectedValue: any;
+  expectedValue: unknown;
 }
+
+type ContractStateParams = {
+  address?: Address;
+  functionName?: string;
+  abi?: readonly unknown[];
+  args?: readonly unknown[];
+};
 
 /**
  * 条件交易配置
@@ -234,36 +241,40 @@ export class ConditionalTransactionPlugin {
    */
   private async checkCondition(
     condition: Condition,
-    publicClient: any,
-    chainId: number
+    publicClient: ReturnType<typeof createPublicClient>,
+    _chainId: number
   ): Promise<boolean> {
-    let actualValue: any;
+    let actualValue: unknown;
 
     switch (condition.type) {
-      case ConditionType.BLOCK_NUMBER:
+      case ConditionType.BLOCK_NUMBER: {
         const blockNumber = await publicClient.getBlockNumber();
         actualValue = Number(blockNumber);
         break;
+      }
 
-      case ConditionType.TIMESTAMP:
-        const block = await publicClient.getBlock({ blockNumber: 'latest' });
+      case ConditionType.TIMESTAMP: {
+        const block = await publicClient.getBlock({ blockTag: 'latest' });
         actualValue = Number(block.timestamp);
         break;
+      }
 
-      case ConditionType.BALANCE:
+      case ConditionType.BALANCE: {
         const address = condition.params.address as Address;
         const balance = await publicClient.getBalance({ address });
         actualValue = Number(balance);
         break;
+      }
 
-      case ConditionType.CONTRACT_STATE:
+      case ConditionType.CONTRACT_STATE: {
         // 合约状态检查
         // 支持查询合约的任意状态变量或调用view函数
-        // params格式: { address: Address, functionName: string, abi: any[], args?: any[] }
-        const contractAddress = condition.params.address as Address;
-        const functionName = condition.params.functionName as string;
-        const abi = condition.params.abi as any[];
-        const args = condition.params.args || [];
+        // params格式: { address: Address, functionName: string, abi: unknown[], args?: unknown[] }
+        const contractStateParams = condition.params as ContractStateParams;
+        const contractAddress = contractStateParams.address;
+        const functionName = contractStateParams.functionName;
+        const abi = contractStateParams.abi;
+        const args = contractStateParams.args || [];
 
         if (!contractAddress || !functionName || !abi) {
           console.warn('Invalid contract state condition params');
@@ -273,9 +284,9 @@ export class ConditionalTransactionPlugin {
         try {
           const result = await publicClient.readContract({
             address: contractAddress,
-            abi: abi,
-            functionName: functionName,
-            args: args,
+            abi,
+            functionName,
+            args,
           });
           
           // 将结果转换为数字进行比较
@@ -285,6 +296,7 @@ export class ConditionalTransactionPlugin {
           return false;
         }
         break;
+      }
 
       default:
         return false;
@@ -297,18 +309,48 @@ export class ConditionalTransactionPlugin {
   /**
    * 比较值
    */
-  private compareValues(actual: any, operator: string, expected: any): boolean {
+  private compareValues(
+    actual: unknown,
+    operator: Condition['operator'],
+    expected: unknown
+  ): boolean {
+    const asNumeric = (value: unknown): number | null => {
+      if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+      }
+      if (typeof value === 'bigint') {
+        return Number(value);
+      }
+      if (typeof value === 'string' && value.trim() !== '') {
+        const parsed = Number(value);
+        return Number.isNaN(parsed) ? null : parsed;
+      }
+      return null;
+    };
+
     switch (operator) {
       case 'eq':
         return actual === expected;
-      case 'gt':
-        return actual > expected;
-      case 'gte':
-        return actual >= expected;
-      case 'lt':
-        return actual < expected;
-      case 'lte':
-        return actual <= expected;
+      case 'gt': {
+        const actualNum = asNumeric(actual);
+        const expectedNum = asNumeric(expected);
+        return actualNum !== null && expectedNum !== null && actualNum > expectedNum;
+      }
+      case 'gte': {
+        const actualNum = asNumeric(actual);
+        const expectedNum = asNumeric(expected);
+        return actualNum !== null && expectedNum !== null && actualNum >= expectedNum;
+      }
+      case 'lt': {
+        const actualNum = asNumeric(actual);
+        const expectedNum = asNumeric(expected);
+        return actualNum !== null && expectedNum !== null && actualNum < expectedNum;
+      }
+      case 'lte': {
+        const actualNum = asNumeric(actual);
+        const expectedNum = asNumeric(expected);
+        return actualNum !== null && expectedNum !== null && actualNum <= expectedNum;
+      }
       case 'ne':
         return actual !== expected;
       default:
@@ -345,7 +387,7 @@ export class ConditionalTransactionPlugin {
     }
 
     // 计算交易哈希（用于在插件合约中标识）
-    const { keccak256, encodeAbiParameters, parseAbiParameters } = await import('viem');
+    const { keccak256, encodeAbiParameters, parseAbiParameters, toBytes } = await import('viem');
     const transactionHash = keccak256(
       encodeAbiParameters(
         parseAbiParameters('address, uint256, bytes, bytes32'),
@@ -353,7 +395,7 @@ export class ConditionalTransactionPlugin {
           transaction.config.target,
           transaction.config.value,
           transaction.config.data,
-          keccak256(JSON.stringify(transaction.config.conditions)) as `0x${string}`, // 条件哈希
+          keccak256(toBytes(JSON.stringify(transaction.config.conditions))) as `0x${string}`, // 条件哈希
         ]
       )
     ) as `0x${string}`;
@@ -446,7 +488,7 @@ export class ConditionalTransactionPlugin {
     // 如果提供了私钥，调用插件合约取消
     if (signerPrivateKey) {
       // 计算交易哈希（与execute时一致）
-      const { keccak256, encodeAbiParameters, parseAbiParameters } = await import('viem');
+      const { keccak256, encodeAbiParameters, parseAbiParameters, toBytes } = await import('viem');
       const transactionHash = keccak256(
         encodeAbiParameters(
           parseAbiParameters('address, uint256, bytes, bytes32'),
@@ -454,7 +496,7 @@ export class ConditionalTransactionPlugin {
             transaction.config.target,
             transaction.config.value,
             transaction.config.data,
-            keccak256(JSON.stringify(transaction.config.conditions)) as `0x${string}`,
+            keccak256(toBytes(JSON.stringify(transaction.config.conditions))) as `0x${string}`,
           ]
         )
       ) as `0x${string}`;
@@ -499,4 +541,3 @@ export class ConditionalTransactionPlugin {
     }
   }
 }
-

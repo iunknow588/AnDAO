@@ -22,6 +22,32 @@ struct ECDSAValidatorStorage {
 bytes constant DUMMY_ECDSA_SIG =
     hex"fffffffffffffffffffffffffffffff0000000000000000000000000000000007aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1c";
 
+/**
+ * @title MultiChainValidator
+ * @notice ECDSA 验证器，支持 Merkle Proof 验证（可用于跨链场景）
+ * 
+ * @dev 重要说明：
+ * - 合约名称中的 "MultiChain" 指的是支持 Merkle Proof 验证机制，可以用于跨链验证场景
+ * - 但合约本身在每个链上独立部署，每个部署实例只存储当前链的 owner 地址
+ * - 实际的多链支持通过以下方式实现：
+ *   1. 每个链上独立部署 MultiChainValidator 实例
+ *   2. 使用 Merkle Proof 机制可以验证来自其他链的签名（需要外部服务生成 Merkle Tree）
+ *   3. 每个链上的账户状态是独立的，不共享
+ * 
+ * @dev 存储结构：
+ * - ecdsaValidatorStorage: 存储每个智能账户的 owner 地址（单链存储）
+ * - 每个链上的 MultiChainValidator 实例管理该链上的账户验证
+ * 
+ * @dev Merkle Proof 支持：
+ * - 支持标准 ECDSA 签名验证（65 bytes）
+ * - 支持 Merkle Proof 验证（>65 bytes），可用于跨链验证场景
+ * - Merkle Proof 需要外部服务生成和维护
+ * 
+ * @dev 部署说明：
+ * - 需要在每个目标链上独立部署此合约
+ * - 不同链上的部署地址可能不同（除非使用 CREATE2 确定性地址）
+ * - 部署后需要在对应链的前端配置中更新地址
+ */
 contract MultiChainValidator is IValidator, IHook {
     event OwnerRegistered(address indexed kernel, address indexed owner);
 

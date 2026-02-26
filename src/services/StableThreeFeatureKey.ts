@@ -1,12 +1,13 @@
 /**
- * 三特征密钥系统（极简新版）
+ * 三特征密钥系统
  *
- * 使用「用户ID + 钱包公钥的哈希值 + 投票会话ID + 投票ID」四个特征生成确定性加密密钥，
+ * 使用「用户ID + 钱包公钥哈希 + 业务ID」三个特征生成确定性加密密钥，
  * 用于本地加密存储敏感数据（如两阶段提交原始数据、投票数据等）。
  *
- * 处理算法保持不变：
- * - 仍然使用 SHA-256(特征组合 + 固定盐值)
- * - 仍然使用前 32 字节作为 AES-256-GCM 密钥
+ * 密钥生成算法：
+ * - 使用 SHA-256( userId | walletPubKeyHash | businessId )
+ * - 使用前 32 字节作为 AES-256-GCM 密钥
+ * - 不使用盐值
  *
  * 仅替换特征来源，不依赖操作系统信息或程序硬编码，保证在纯前端环境下的稳定性和可移植性。
  *
@@ -19,8 +20,7 @@
 export interface ThreeFeatures {
   userId: string;           // 用户注册ID
   walletPubKeyHash: string; // 钱包公钥哈希（稳定摘要）
-  voteSessionId: string;    // 投票/业务会话ID
-  voteId: string;           // 单次投票ID（同一会话多次投票时用于区分）
+  businessId: string;      // 业务ID（业务场景标识）
 }
 
 /**
@@ -29,8 +29,7 @@ export interface ThreeFeatures {
 export interface FeatureSummary {
   userId: string;
   walletPubKeyHash: string;
-  voteSessionId: string;
-  voteId: string;
+  businessId: string;
 }
 
 /**
@@ -42,11 +41,7 @@ export class StableThreeFeatureKey {
   // 三个核心特征
   private userId: string = '';             // 用户注册ID（用户提供）
   private walletPubKeyHash: string = '';   // 钱包公钥哈希（由公钥计算）
-  private voteSessionId: string = '';      // 投票/业务会话ID
-  private voteId: string = '';             // 单次投票ID
-
-  // 固定盐值（永不改变）
-  private readonly SALT = 'ANDAO_WALLET_TWO_PHASE_COMMIT_SALT_v1.0';
+  private businessId: string = '';         // 业务ID（业务场景标识）
 
   // 密钥缓存
   private keyCache: Map<string, CryptoKey> = new Map();
@@ -54,15 +49,13 @@ export class StableThreeFeatureKey {
   // 本地存储键
   private readonly USER_ID_STORAGE_KEY = 'voting_user_id';
   private readonly WALLET_PK_HASH_STORAGE_KEY = 'voting_wallet_pk_hash';
-  private readonly VOTE_SESSION_ID_STORAGE_KEY = 'voting_session_id';
-  private readonly VOTE_ID_STORAGE_KEY = 'voting_vote_id';
+  private readonly BUSINESS_ID_STORAGE_KEY = 'business_id';
 
   private constructor() {
     // 尝试从存储中恢复已有特征，保证稳定性
     this.loadUserId();
     this.loadWalletPubKeyHash();
-    this.loadVoteSessionId();
-    this.loadVoteId();
+    this.loadBusinessId();
   }
 
   /**
@@ -76,24 +69,22 @@ export class StableThreeFeatureKey {
   }
 
   /**
-   * 初始化（设置三特征）
+   * 初始化（设置三个特征）
    *
    * @param userId 用户注册ID
-   * @param walletPubKey 钱包公钥（原始公钥字符串，将在本地做哈希）
-   * @param voteSessionId 投票/业务会话ID
-   * @param voteId 单次投票ID（同一会话内多次投票时区分）
+   * @param walletPubKey 钱包公钥（原始公钥字符串，将在本地做哈希处理）
+   * @param businessId 业务ID（业务场景标识）
    * @returns 是否初始化成功
    */
-  async initialize(userId: string, walletPubKey: string, voteSessionId: string, voteId: string): Promise<boolean> {
+  async initialize(userId: string, walletPubKey: string, businessId: string): Promise<boolean> {
     try {
       this.setUserId(userId);
       this.setWalletPubKeyHash(walletPubKey);
-      this.setVoteSessionId(voteSessionId);
-      this.setVoteId(voteId);
+      this.setBusinessId(businessId);
 
       const features = this.getThreeFeatures();
 
-      if (!features.userId || !features.walletPubKeyHash || !features.voteSessionId || !features.voteId) {
+      if (!features.userId || !features.walletPubKeyHash || !features.businessId) {
         throw new Error('特征不完整');
       }
 
@@ -138,29 +129,15 @@ export class StableThreeFeatureKey {
   }
 
   /**
-   * 设置投票会话ID（并持久化）
+   * 设置业务ID（并持久化）
    */
-  private setVoteSessionId(sessionId: string): void {
-    this.voteSessionId = sessionId.trim();
-    if (this.voteSessionId) {
+  private setBusinessId(businessId: string): void {
+    this.businessId = businessId.trim();
+    if (this.businessId) {
       try {
-        localStorage.setItem(this.VOTE_SESSION_ID_STORAGE_KEY, this.voteSessionId);
+        localStorage.setItem(this.BUSINESS_ID_STORAGE_KEY, this.businessId);
       } catch (e) {
-        console.warn('投票会话ID存储失败:', e);
-      }
-    }
-  }
-
-  /**
-   * 设置单次投票ID（并持久化）
-   */
-  private setVoteId(voteId: string): void {
-    this.voteId = voteId.trim();
-    if (this.voteId) {
-      try {
-        localStorage.setItem(this.VOTE_ID_STORAGE_KEY, this.voteId);
-      } catch (e) {
-        console.warn('投票ID存储失败:', e);
+        console.warn('业务ID存储失败:', e);
       }
     }
   }
@@ -194,30 +171,16 @@ export class StableThreeFeatureKey {
   }
 
   /**
-   * 从存储加载投票会话ID
+   * 从存储加载业务ID
    */
-  private loadVoteSessionId(): void {
+  private loadBusinessId(): void {
     try {
-      const stored = localStorage.getItem(this.VOTE_SESSION_ID_STORAGE_KEY);
+      const stored = localStorage.getItem(this.BUSINESS_ID_STORAGE_KEY);
       if (stored) {
-        this.voteSessionId = stored;
+        this.businessId = stored;
       }
     } catch (e) {
-      console.warn('投票会话ID加载失败:', e);
-    }
-  }
-
-  /**
-   * 从存储加载投票ID
-   */
-  private loadVoteId(): void {
-    try {
-      const stored = localStorage.getItem(this.VOTE_ID_STORAGE_KEY);
-      if (stored) {
-        this.voteId = stored;
-      }
-    } catch (e) {
-      console.warn('投票ID加载失败:', e);
+      console.warn('业务ID加载失败:', e);
     }
   }
 
@@ -230,6 +193,10 @@ export class StableThreeFeatureKey {
     }
     return this.userId;
   }
+
+  /**
+   * 获取钱包公钥哈希
+   */
   private getWalletPubKeyHash(): string {
     if (!this.walletPubKeyHash) {
       this.loadWalletPubKeyHash();
@@ -237,18 +204,14 @@ export class StableThreeFeatureKey {
     return this.walletPubKeyHash;
   }
 
-  private getVoteSessionId(): string {
-    if (!this.voteSessionId) {
-      this.loadVoteSessionId();
+  /**
+   * 获取业务ID
+   */
+  private getBusinessId(): string {
+    if (!this.businessId) {
+      this.loadBusinessId();
     }
-    return this.voteSessionId;
-  }
-
-  private getVoteId(): string {
-    if (!this.voteId) {
-      this.loadVoteId();
-    }
-    return this.voteId;
+    return this.businessId;
   }
 
   /**
@@ -257,18 +220,16 @@ export class StableThreeFeatureKey {
   getThreeFeatures(): ThreeFeatures {
     const userId = this.getUserId();
     const walletPubKeyHash = this.getWalletPubKeyHash();
-    const voteSessionId = this.getVoteSessionId();
-    const voteId = this.getVoteId();
+    const businessId = this.getBusinessId();
 
-    if (!userId || !walletPubKeyHash || !voteSessionId || !voteId) {
+    if (!userId || !walletPubKeyHash || !businessId) {
       throw new Error('三特征未完整初始化，请先调用 initialize(...)');
     }
 
     return {
       userId,
       walletPubKeyHash,
-      voteSessionId,
-      voteId,
+      businessId,
     };
   }
 
@@ -298,25 +259,23 @@ export class StableThreeFeatureKey {
    */
   private generateCacheKey(features: ThreeFeatures): string {
     // 简单组合，不涉及复杂计算
-    return `KEY_${features.userId}_${features.walletPubKeyHash}_${features.voteSessionId}_${features.voteId}`;
+    return `KEY_${features.userId}_${features.walletPubKeyHash}_${features.businessId}`;
   }
 
   /**
    * 从三个特征派生密钥（核心算法）
    * 
-   * 使用 SHA-256 哈希三个特征和盐值，生成确定性密钥
+   * 使用 SHA-256 哈希三个特征，生成确定性密钥（不使用盐值）
    */
   private async deriveKeyFromFeatures(features: ThreeFeatures): Promise<CryptoKey> {
-    // 1. 按固定顺序组合特征
+    // 1. 按固定顺序组合三个特征
     const combined = [
-      features.userId,
-      features.walletPubKeyHash,
-      features.voteSessionId,
-      features.voteId,
-      this.SALT,
+      features.userId,           // 特征1: 用户ID
+      features.walletPubKeyHash,  // 特征2: 钱包公钥哈希
+      features.businessId,        // 特征3: 业务ID
     ].join('|');
 
-    // 2. 使用 SHA-256 生成确定性哈希
+    // 2. 使用 SHA-256 生成确定性哈希（不使用盐值）
     const seed = await this.sha256(combined);
 
     // 3. 使用哈希的前32字节作为 AES-256 密钥
@@ -336,7 +295,7 @@ export class StableThreeFeatureKey {
   /**
    * 轻量级同步哈希（用于对公钥做稳定摘要，不直接作为密钥）
    *
-   * 真正的密钥材料仍然来自 sha256(combined + SALT)。
+   * 真正的密钥材料来自 sha256(userId | walletPubKeyHash | businessId)。
    */
   private hashHex(input: string): string {
     const encoder = new TextEncoder();
@@ -354,7 +313,7 @@ export class StableThreeFeatureKey {
   private async bytesToKey(bytes: Uint8Array): Promise<CryptoKey> {
     return await crypto.subtle.importKey(
       'raw',
-      bytes,
+      Uint8Array.from(bytes),
       { name: 'AES-GCM', length: 256 },
       false,
       ['encrypt', 'decrypt']
@@ -370,8 +329,7 @@ export class StableThreeFeatureKey {
 
       if (!features.userId) return false;
       if (!features.walletPubKeyHash) return false;
-      if (!features.voteSessionId) return false;
-      if (!features.voteId) return false;
+      if (!features.businessId) return false;
 
       // 尝试生成密钥
       await this.getUserKey();
@@ -391,24 +349,21 @@ export class StableThreeFeatureKey {
     return {
       userId: features.userId,
       walletPubKeyHash: '[HASHED]', // 不暴露真实哈希
-      voteSessionId: features.voteSessionId,
-      voteId: features.voteId,
+      businessId: features.businessId,
     };
   }
 
   /**
-   * 清除用户ID（用于登出等场景）
+   * 清除所有特征（用于登出等场景）
    */
-  clearUserId(): void {
+  clearAllFeatures(): void {
     this.userId = '';
     this.walletPubKeyHash = '';
-    this.voteSessionId = '';
-    this.voteId = '';
+    this.businessId = '';
     try {
       localStorage.removeItem(this.USER_ID_STORAGE_KEY);
       localStorage.removeItem(this.WALLET_PK_HASH_STORAGE_KEY);
-      localStorage.removeItem(this.VOTE_SESSION_ID_STORAGE_KEY);
-      localStorage.removeItem(this.VOTE_ID_STORAGE_KEY);
+      localStorage.removeItem(this.BUSINESS_ID_STORAGE_KEY);
     } catch (e) {
       console.warn('清除本地特征失败:', e);
     }
@@ -418,4 +373,3 @@ export class StableThreeFeatureKey {
 }
 
 export const stableThreeFeatureKey = StableThreeFeatureKey.getInstance();
-

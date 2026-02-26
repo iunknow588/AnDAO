@@ -28,12 +28,11 @@ export class TwoPhaseCommitEncryption {
    *
    * @param userId 用户注册ID
    * @param walletPubKey 钱包公钥（原始公钥字符串，将在本地计算哈希）
-   * @param voteSessionId 会话ID（例如本次两阶段提交/投票会话ID）
-   * @param voteId 单次投票/提交ID（同一会话多次投票时区分）
+   * @param businessId 业务ID（业务场景标识，例如两阶段提交任务ID）
    * @returns 是否初始化成功
    */
-  async initialize(userId: string, walletPubKey: string, voteSessionId: string, voteId: string): Promise<boolean> {
-    return stableThreeFeatureKey.initialize(userId, walletPubKey, voteSessionId, voteId);
+  async initialize(userId: string, walletPubKey: string, businessId: string): Promise<boolean> {
+    return stableThreeFeatureKey.initialize(userId, walletPubKey, businessId);
   }
 
   /**
@@ -109,10 +108,10 @@ export class TwoPhaseCommitEncryption {
     const plaintext = await crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv: iv,
+        iv: Uint8Array.from(iv),
       },
       userKey,
-      ciphertext
+      Uint8Array.from(ciphertext)
     );
 
     // 解析 JSON
@@ -140,7 +139,7 @@ export class TwoPhaseCommitEncryption {
    * 工具方法：Base64 转数组
    */
   private base64ToArray(base64: string): Uint8Array {
-    return new Uint8Array(
+    return Uint8Array.from(
       atob(base64)
         .split('')
         .map((c) => c.charCodeAt(0))
@@ -149,4 +148,3 @@ export class TwoPhaseCommitEncryption {
 }
 
 export const twoPhaseCommitEncryption = new TwoPhaseCommitEncryption();
-

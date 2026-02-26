@@ -58,7 +58,7 @@ export interface StorageProviderConfig {
    * - Arweave: { gatewayUrl, wallet }
    * - Custom: { endpoint, apiKey, ... }
    */
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
   
   /**
    * 自定义端点（可选）
@@ -107,7 +107,7 @@ export interface IStorageProvider {
    * // 或自定义URI (自定义存储)
    * ```
    */
-  add(data: any): Promise<string>;
+  add(data: unknown): Promise<string>;
   
   /**
    * 获取数据
@@ -123,7 +123,7 @@ export interface IStorageProvider {
    * const data = await provider.get<ApplicationDetail>('QmXXX...');
    * ```
    */
-  get<T = any>(identifier: string): Promise<T>;
+  get<T = unknown>(identifier: string): Promise<T>;
   
   /**
    * 验证存储标识符是否有效
@@ -173,5 +173,5 @@ export interface IStorageProvider {
    * const dataArray = await provider.getBatch(['QmXXX...', 'QmYYY...']);
    * ```
    */
-  getBatch?<T = any>(identifiers: string[]): Promise<T[]>;
+  getBatch?<T = unknown>(identifiers: string[]): Promise<T[]>;
 }

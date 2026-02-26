@@ -13,7 +13,7 @@
  * @module services/storage/StorageProviderManager
  */
 
-import { IStorageProvider, StorageProviderType, StorageProviderConfig } from '@/interfaces/IStorageProvider';
+import { IStorageProvider, StorageProviderType } from '@/interfaces/IStorageProvider';
 import { DefaultIPFSStorageProvider } from './DefaultIPFSStorageProvider';
 
 /**
@@ -23,12 +23,37 @@ import { DefaultIPFSStorageProvider } from './DefaultIPFSStorageProvider';
  */
 export class StorageProviderManager {
   private providers: Map<StorageProviderType, IStorageProvider> = new Map();
-  private defaultProvider: IStorageProvider;
+  private defaultProvider: IStorageProvider | null = null;
+  private defaultProviderInitialized = false;
   
   constructor() {
-    // 注册默认IPFS提供者
-    this.defaultProvider = new DefaultIPFSStorageProvider();
-    this.register(this.defaultProvider);
+    // 延迟初始化默认提供者，确保枚举已加载
+    // 在生产构建中，枚举可能还未加载，所以延迟到第一次使用时初始化
+  }
+  
+  /**
+   * 确保默认提供者已初始化
+   */
+  private ensureDefaultProvider(): void {
+    if (!this.defaultProviderInitialized) {
+      try {
+        this.defaultProvider = new DefaultIPFSStorageProvider();
+        // 手动注册，避免循环调用
+        this.providers.set(this.defaultProvider.type, this.defaultProvider);
+        this.defaultProviderInitialized = true;
+      } catch (error) {
+        console.error('StorageProviderManager: 初始化默认提供者失败', error);
+        // 如果仍然失败，创建一个最小实现
+        throw new Error('Failed to initialize default storage provider');
+      }
+    }
+  }
+
+  private getDefaultProviderOrThrow(): IStorageProvider {
+    if (!this.defaultProvider) {
+      throw new Error('Default storage provider is not initialized');
+    }
+    return this.defaultProvider;
   }
   
   /**
@@ -46,11 +71,13 @@ export class StorageProviderManager {
    * ```
    */
   register(provider: IStorageProvider): void {
+    this.ensureDefaultProvider();
     this.providers.set(provider.type, provider);
     
     // 如果注册的是默认类型，更新默认提供者
     if (provider.type === StorageProviderType.IPFS) {
       this.defaultProvider = provider;
+      this.defaultProviderInitialized = true;
     }
   }
   
@@ -69,7 +96,8 @@ export class StorageProviderManager {
    * ```
    */
   getProvider(type: StorageProviderType): IStorageProvider {
-    return this.providers.get(type) || this.defaultProvider;
+    this.ensureDefaultProvider();
+    return this.providers.get(type) ?? this.getDefaultProviderOrThrow();
   }
   
   /**
@@ -86,7 +114,8 @@ export class StorageProviderManager {
    * ```
    */
   getDefaultProvider(): IStorageProvider {
-    return this.defaultProvider;
+    this.ensureDefaultProvider();
+    return this.getDefaultProviderOrThrow();
   }
   
   /**
@@ -109,11 +138,13 @@ export class StorageProviderManager {
    * ```
    */
   getProviderByIdentifier(identifier: string): IStorageProvider {
+    this.ensureDefaultProvider();
     if (!identifier || typeof identifier !== 'string') {
-      return this.defaultProvider;
+      return this.getDefaultProviderOrThrow();
     }
     
     // 检查IPFS CID格式
+    // 使用字符串字面量避免枚举加载问题
     if (identifier.startsWith('Qm') || identifier.startsWith('bafy') || identifier.startsWith('bafk')) {
       return this.getProvider(StorageProviderType.IPFS);
     }
@@ -135,7 +166,7 @@ export class StorageProviderManager {
     }
     
     // 默认返回IPFS提供者
-    return this.defaultProvider;
+    return this.getDefaultProviderOrThrow();
   }
   
   /**
@@ -165,6 +196,7 @@ export class StorageProviderManager {
    * @param type 存储提供者类型
    */
   removeProvider(type: StorageProviderType): void {
+    this.ensureDefaultProvider();
     // 不允许移除默认提供者
     if (type === StorageProviderType.IPFS) {
       throw new Error('Cannot remove default IPFS provider');
@@ -175,8 +207,29 @@ export class StorageProviderManager {
 }
 
 /**
- * 全局存储提供者管理器实例
+ * 全局存储提供者管理器实例（延迟初始化）
  * 
  * 单例模式，在整个应用中共享
+ * 使用延迟初始化避免模块加载顺序问题
  */
-export const storageProviderManager = new StorageProviderManager();
+let _storageProviderManagerInstance: StorageProviderManager | null = null;
+
+/**
+ * 获取全局存储提供者管理器实例
+ * 
+ * 延迟初始化，确保所有依赖模块都已加载
+ */
+export function getStorageProviderManager(): StorageProviderManager {
+  if (!_storageProviderManagerInstance) {
+    _storageProviderManagerInstance = new StorageProviderManager();
+  }
+  return _storageProviderManagerInstance;
+}
+
+/**
+ * 全局存储提供者管理器实例
+ * 
+ * 使用延迟初始化避免模块加载顺序问题
+ * 在第一次访问时创建实例
+ */
+export const storageProviderManager = getStorageProviderManager();

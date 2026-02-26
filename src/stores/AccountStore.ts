@@ -15,7 +15,7 @@
 import { makeAutoObservable } from 'mobx';
 import { AccountInfo, SupportedChain } from '@/types';
 import { accountManager } from '@/services/AccountManager';
-import { DEFAULT_CHAIN, getChainConfig } from '@/config/chains';
+import { DEFAULT_CHAIN, getChainConfig, getSupportedChainByChainId, MANTLE_TESTNET_CHAIN } from '@/config/chains';
 
 /**
  * 账户 Store 类
@@ -29,8 +29,11 @@ export class AccountStore {
   /** 当前选中的账户 */
   currentAccount: AccountInfo | null = null;
   
-  /** 当前选中的链 */
+  /** 当前选中的链（枚举值） */
   currentChain: SupportedChain = DEFAULT_CHAIN;
+  
+  /** 当前选中的链 ID（用于区分主网和测试网） */
+  currentChainId: number = MANTLE_TESTNET_CHAIN.chainId; // 默认使用测试网（开发环境）
   
   /** 是否正在加载 */
   isLoading = false;
@@ -38,9 +41,12 @@ export class AccountStore {
   /** 错误信息 */
   error: string | null = null;
 
+  /** 初始化任务（用于外部等待 Store 就绪） */
+  private initPromise: Promise<void> | null = null;
+
   constructor() {
     makeAutoObservable(this);
-    this.init();
+    this.initPromise = this.init();
   }
 
   /**
@@ -56,12 +62,21 @@ export class AccountStore {
       
       // 恢复当前账户
       if (this.accounts.length > 0) {
-        this.currentAccount = this.accounts[0];
+        this.setCurrentAccount(this.accounts[0]);
       }
     } catch (error) {
       this.error = error instanceof Error ? error.message : 'Failed to initialize accounts';
     } finally {
       this.isLoading = false;
+    }
+  }
+
+  /**
+   * 等待初始化完成（不触发重复初始化）
+   */
+  async waitUntilReady(): Promise<void> {
+    if (this.initPromise) {
+      await this.initPromise;
     }
   }
 
@@ -91,7 +106,7 @@ export class AccountStore {
         (a) => a.address.toLowerCase() === address.toLowerCase() && a.chainId === chainId
       );
       if (account) {
-        this.currentAccount = account;
+        this.setCurrentAccount(account);
       }
     } catch (error) {
       this.error = error instanceof Error ? error.message : 'Failed to create account';
@@ -106,16 +121,8 @@ export class AccountStore {
    */
   setCurrentAccount(account: AccountInfo): void {
     this.currentAccount = account;
-    // 根据 chainId 确定链类型
-    // Mantle: 5000, Injective: 888
-    if (account.chainId === 5000 || account.chainId === 5001) {
-      this.currentChain = SupportedChain.MANTLE;
-    } else if (account.chainId === 888) {
-      this.currentChain = SupportedChain.INJECTIVE;
-    } else {
-      // 默认使用 Mantle
-      this.currentChain = DEFAULT_CHAIN;
-    }
+    this.currentChainId = account.chainId;
+    this.currentChain = getSupportedChainByChainId(account.chainId) || DEFAULT_CHAIN;
   }
 
   /**
@@ -136,33 +143,25 @@ export class AccountStore {
    * ```
    */
   setCurrentChain(chain: SupportedChain | number): void {
-    // 如果是数字，尝试转换为 SupportedChain
-    if (typeof chain === 'number') {
-      // 查找匹配的链
-      const supportedChain = Object.values(SupportedChain).find(
-        (c) => {
-          try {
-            const config = getChainConfig(c as SupportedChain);
-            return config.chainId === chain;
-          } catch {
-            return false;
-          }
-        }
-      ) as SupportedChain | undefined;
+    let chainId: number;
+    let chainEnum: SupportedChain;
 
-      if (supportedChain) {
-        this.currentChain = supportedChain;
-      } else {
-        // 自定义链：暂时使用数字作为标识
-        // 注意：这需要扩展类型定义以支持自定义链
-        this.currentChain = chain as any;
-      }
+    // 如果是数字（chainId），直接使用
+    if (typeof chain === 'number') {
+      chainId = chain;
+      chainEnum = getSupportedChainByChainId(chainId) || DEFAULT_CHAIN;
     } else {
-      this.currentChain = chain;
+      // 如果是枚举值，获取对应的 chainId
+      chainEnum = chain;
+      const config = getChainConfig(chain);
+      chainId = config.chainId;
     }
 
+    // 更新链枚举值和 chainId
+    this.currentChain = chainEnum;
+    this.currentChainId = chainId;
+
     // 查找当前链的账户
-    const chainId = typeof chain === 'number' ? chain : (getChainConfig(chain).chainId);
     const account = this.accounts.find((a) => a.chainId === chainId);
     if (account) {
       this.currentAccount = account;
@@ -193,7 +192,15 @@ export class AccountStore {
    * ```
    */
   getAccount(chain: SupportedChain | number): AccountInfo | null {
-    const chainId = typeof chain === 'number' ? chain : (getChainConfig(chain).chainId);
+    // 枚举值（如 Mantle）无法区分主网/测试网时，优先使用当前激活的 chainId。
+    // 仅当 currentChainId 能映射到同一链枚举时才使用 currentChainId，避免自定义链误映射。
+    const currentChainFromId = getSupportedChainByChainId(this.currentChainId);
+    const chainId =
+      typeof chain === 'number'
+        ? chain
+        : currentChainFromId === chain
+          ? this.currentChainId
+          : getChainConfig(chain).chainId;
     return this.accounts.find((a) => a.chainId === chainId) || null;
   }
 
@@ -216,16 +223,8 @@ export class AccountStore {
       await accountManager.importAccount(account);
       this.accounts = await accountManager.getAllAccounts();
       this.currentAccount = account;
-      // 根据 chainId 确定链类型
-      // Mantle: 5000, Injective: 888
-      if (account.chainId === 5000 || account.chainId === 5001) {
-        this.currentChain = SupportedChain.MANTLE;
-      } else if (account.chainId === 888) {
-        this.currentChain = SupportedChain.INJECTIVE;
-      } else {
-        // 默认使用 Mantle
-        this.currentChain = DEFAULT_CHAIN;
-      }
+      this.currentChainId = account.chainId;
+      this.currentChain = getSupportedChainByChainId(account.chainId) || DEFAULT_CHAIN;
     } catch (error) {
       this.error = error instanceof Error ? error.message : 'Failed to add account';
       throw error;
@@ -243,4 +242,3 @@ export class AccountStore {
 }
 
 export const accountStore = new AccountStore();
-

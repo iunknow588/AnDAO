@@ -14,7 +14,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
-import { KeyManagerService } from '@/services/KeyManagerService';
+import { keyManagerService } from '@/services/KeyManagerService';
 import { sponsorService } from '@/services/SponsorService';
 import { StorageProviderType, StorageProviderConfig } from '@/interfaces/IStorageProvider';
 import { SponsorRules, ChannelInfo } from '@/types/sponsor';
@@ -22,10 +22,12 @@ import { Address, formatEther, parseEther } from 'viem';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Input } from '@/components/Input';
+import { PasswordInputField } from '@/components/PasswordInput/PasswordInputField';
 import { ErrorHandler } from '@/utils/errors';
+import { normalizePrivateKeyInput, validatePasswordPair } from '@/utils/pathFlowValidation';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
 import { useStore } from '@/stores';
 import { createPublicClient, http } from 'viem';
-import { getChainConfigByChainId } from '@/config/chains';
 
 const Container = styled.div`
   max-width: 800px;
@@ -41,7 +43,7 @@ const StepIndicator = styled.div`
   gap: 16px;
 `;
 
-const Step = styled.div<{ active?: boolean; completed?: boolean }>`
+const Step = styled.div<{ $active?: boolean; $completed?: boolean }>`
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -50,17 +52,17 @@ const Step = styled.div<{ active?: boolean; completed?: boolean }>`
   justify-content: center;
   font-weight: 600;
   background: ${props => 
-    props.completed ? '#4c6ef5' : 
-    props.active ? '#4c6ef5' : '#e9ecef'};
+    props.$completed ? '#4c6ef5' : 
+    props.$active ? '#4c6ef5' : '#e9ecef'};
   color: ${props => 
-    props.completed || props.active ? '#ffffff' : '#666'};
+    props.$completed || props.$active ? '#ffffff' : '#666'};
   transition: all 0.3s ease;
 `;
 
-const StepLine = styled.div<{ completed?: boolean }>`
+const StepLine = styled.div<{ $completed?: boolean }>`
   width: 60px;
   height: 2px;
-  background: ${props => props.completed ? '#4c6ef5' : '#e9ecef'};
+  background: ${props => props.$completed ? '#4c6ef5' : '#e9ecef'};
   margin-top: 19px;
 `;
 
@@ -218,13 +220,13 @@ const Tabs = styled.div`
   border-bottom: 2px solid #e9ecef;
 `;
 
-const Tab = styled.button<{ active?: boolean }>`
+const Tab = styled.button<{ $active?: boolean }>`
   padding: 12px 24px;
   background: none;
   border: none;
-  border-bottom: 2px solid ${props => props.active ? '#4c6ef5' : 'transparent'};
-  color: ${props => props.active ? '#4c6ef5' : '#666'};
-  font-weight: ${props => props.active ? '600' : '400'};
+  border-bottom: 2px solid ${props => props.$active ? '#4c6ef5' : 'transparent'};
+  color: ${props => props.$active ? '#4c6ef5' : '#666'};
+  font-weight: ${props => props.$active ? '600' : '400'};
   cursor: pointer;
   transition: all 0.3s ease;
   
@@ -270,38 +272,56 @@ export const CreateAccountPathCPage: React.FC = () => {
   const [sponsorId, setSponsorId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   
-  const keyManagerService = new KeyManagerService();
-  const chainId = typeof accountStore.currentChain === 'number'
-    ? accountStore.currentChain
-    : 5001;
+  const chainId = accountStore.currentChainId;
   
   // 步骤2: 加载Gas账户余额
   useEffect(() => {
     if (step === 2 && gasAccountAddress) {
       loadGasAccountBalance();
     }
+    // 仅在进入步骤2且 Gas 账户存在时刷新余额
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, gasAccountAddress]);
   
   /**
    * 加载Gas账户余额
    */
-  const loadGasAccountBalance = async () => {
-    if (!gasAccountAddress) return;
+  const loadGasAccountBalance = async (address?: Address): Promise<bigint | null> => {
+    const targetAddress = address ?? gasAccountAddress;
+    if (!targetAddress) return null;
     
     try {
-      const chainConfig = getChainConfigByChainId(chainId);
-      if (!chainConfig) {
-        throw new Error(`Unsupported chain: ${chainId}`);
-      }
+      console.log('[CreateAccountPathCPage] 加载 Gas 账户余额:', {
+        gasAccountAddress: targetAddress,
+        chainId,
+      });
+
+      const chainConfig = requireChainConfig(chainId, ['rpcUrl']);
       
+      console.log('[CreateAccountPathCPage] 使用链配置:', {
+        chainId: chainConfig.chainId,
+        name: chainConfig.name,
+        rpcUrl: chainConfig.rpcUrl,
+      });
+
       const publicClient = createPublicClient({
         transport: http(chainConfig.rpcUrl),
       });
       
-      const balance = await publicClient.getBalance({ address: gasAccountAddress });
+      console.log('[CreateAccountPathCPage] 从 RPC 查询余额:', chainConfig.rpcUrl);
+      const balance = await publicClient.getBalance({ address: targetAddress });
+      
+      console.log('[CreateAccountPathCPage] 余额查询结果:', {
+        balanceWei: balance.toString(),
+        balanceEther: formatEther(balance),
+      });
+      
       setGasAccountBalance(balance);
+      return balance;
     } catch (error) {
-      ErrorHandler.handleError(error);
+      console.error('[CreateAccountPathCPage] 加载 Gas 账户余额失败:', error);
+      ErrorHandler.handleAndShow(error);
+      return null;
     }
   };
   
@@ -310,7 +330,7 @@ export const CreateAccountPathCPage: React.FC = () => {
    */
   const handleSetSponsorInfo = () => {
     if (!sponsorName.trim()) {
-      ErrorHandler.handleError(new Error('请输入赞助商名称'));
+      ErrorHandler.showError('请输入赞助商名称');
       return;
     }
     
@@ -324,57 +344,54 @@ export const CreateAccountPathCPage: React.FC = () => {
     try {
       setIsLoading(true);
       let privateKey: `0x${string}`;
+      let resolvedGasAccountAddress: Address;
       
       if (gasAccountMethod === 'create') {
         // 创建新Gas账户
         const { address, privateKey: pk } = await keyManagerService.generatePrivateKey();
         privateKey = pk;
-        setGasAccountAddress(address);
+        resolvedGasAccountAddress = address;
       } else {
         // 导入现有Gas账户
         if (!acknowledgePrivateKeyRisk) {
-          ErrorHandler.handleError(
-            new Error('请先确认您已理解私钥安全风险，并仅在可信环境中输入私钥')
-          );
+          ErrorHandler.showError('请先确认您已理解私钥安全风险，并仅在可信环境中输入私钥');
           return;
         }
         if (!gasAccountPrivateKey) {
-          ErrorHandler.handleError(new Error('请输入Gas账户私钥'));
+          ErrorHandler.showError('请输入Gas账户私钥');
           return;
         }
         
-        if (!gasAccountPrivateKey.startsWith('0x')) {
-          setGasAccountPrivateKey('0x' + gasAccountPrivateKey);
+        const normalizedPrivateKey = normalizePrivateKeyInput(gasAccountPrivateKey);
+        if (normalizedPrivateKey !== gasAccountPrivateKey) {
+          setGasAccountPrivateKey(normalizedPrivateKey);
         }
-        privateKey = gasAccountPrivateKey as `0x${string}`;
+        privateKey = normalizedPrivateKey;
         const address = keyManagerService.getAddressFromPrivateKey(privateKey);
-        setGasAccountAddress(address);
+        resolvedGasAccountAddress = address;
       }
       
       // 保存Gas账户私钥
-      if (!password || password.length < 8) {
-        ErrorHandler.handleError(new Error('密码至少需要8个字符'));
+      const passwordError = validatePasswordPair(password, confirmPassword);
+      if (passwordError) {
+        ErrorHandler.showError(passwordError);
         return;
       }
       
-      if (password !== confirmPassword) {
-        ErrorHandler.handleError(new Error('两次输入的密码不一致'));
-        return;
-      }
-      
-      await keyManagerService.savePrivateKey(gasAccountAddress!, privateKey, password);
+      setGasAccountAddress(resolvedGasAccountAddress);
+      await keyManagerService.savePrivateKey(resolvedGasAccountAddress, privateKey, password);
       
       // 检查余额
-      await loadGasAccountBalance();
+      const latestBalance = await loadGasAccountBalance(resolvedGasAccountAddress);
       
-      if (gasAccountBalance < parseEther('0.5')) {
-        ErrorHandler.handleError(new Error('Gas账户余额不足，至少需要0.5 MNT'));
+      if (latestBalance === null || latestBalance < parseEther('0.5')) {
+        ErrorHandler.showError('Gas账户余额不足，至少需要0.5 MNT');
         return;
       }
       
       setStep(3);
     } catch (error) {
-      ErrorHandler.handleError(error);
+      ErrorHandler.handleAndShow(error);
     } finally {
       setIsLoading(false);
     }
@@ -385,7 +402,7 @@ export const CreateAccountPathCPage: React.FC = () => {
    */
   const handleSetRules = () => {
     if (!channelName.trim()) {
-      ErrorHandler.handleError(new Error('请输入渠道名称'));
+      ErrorHandler.showError('请输入渠道名称');
       return;
     }
     
@@ -397,7 +414,7 @@ export const CreateAccountPathCPage: React.FC = () => {
    */
   const handleCompleteRegistration = async () => {
     if (!gasAccountAddress) {
-      ErrorHandler.handleError(new Error('Gas账户未设置'));
+      ErrorHandler.showError('Gas账户未设置');
       return;
     }
     
@@ -457,7 +474,7 @@ export const CreateAccountPathCPage: React.FC = () => {
       
       setStep(5);
     } catch (error) {
-      ErrorHandler.handleError(error);
+      ErrorHandler.handleAndShow(error);
     } finally {
       setIsLoading(false);
     }
@@ -468,9 +485,7 @@ export const CreateAccountPathCPage: React.FC = () => {
    */
   const handleSuccess = () => {
     // 导航到赞助商仪表板
-    // 注意：当前还没有实现赞助商仪表板页面，暂时导航到资产管理页面
-    // 未来应该导航到 /sponsor/dashboard 或类似的路径
-    navigate('/assets');
+    navigate('/sponsor/dashboard');
   };
   
   const steps = [
@@ -487,13 +502,13 @@ export const CreateAccountPathCPage: React.FC = () => {
         {steps.map((s, index) => (
           <React.Fragment key={s.number}>
             <Step
-              active={step === s.number}
-              completed={step > s.number}
+              $active={step === s.number}
+              $completed={step > s.number}
             >
               {step > s.number ? '✓' : s.number}
             </Step>
             {index < steps.length - 1 && (
-              <StepLine completed={step > s.number} />
+              <StepLine $completed={step > s.number} />
             )}
           </React.Fragment>
         ))}
@@ -537,7 +552,7 @@ export const CreateAccountPathCPage: React.FC = () => {
             type="email"
             value={contactEmail}
             onChange={(e) => setContactEmail(e.target.value)}
-            placeholder="your@email.com"
+            placeholder="例如：name@example.com"
           />
           
           <Input
@@ -551,14 +566,14 @@ export const CreateAccountPathCPage: React.FC = () => {
             label="X（推特）（可选）"
             value={contactX}
             onChange={(e) => setContactX(e.target.value)}
-            placeholder="@your_x_handle"
+            placeholder="例如：@your_handle"
           />
           
           <Input
             label="网站（可选）"
             value={contactWebsite}
             onChange={(e) => setContactWebsite(e.target.value)}
-            placeholder="https://your-website.com"
+            placeholder="例如：https://example.com"
           />
           
           <ButtonGroup>
@@ -593,10 +608,10 @@ export const CreateAccountPathCPage: React.FC = () => {
           </InfoBox>
           
           <Tabs>
-            <Tab active={gasAccountMethod === 'create'} onClick={() => setGasAccountMethod('create')}>
+            <Tab $active={gasAccountMethod === 'create'} onClick={() => setGasAccountMethod('create')}>
               创建新账户
             </Tab>
-            <Tab active={gasAccountMethod === 'import'} onClick={() => setGasAccountMethod('import')}>
+            <Tab $active={gasAccountMethod === 'import'} onClick={() => setGasAccountMethod('import')}>
               导入现有账户
             </Tab>
           </Tabs>
@@ -654,12 +669,13 @@ export const CreateAccountPathCPage: React.FC = () => {
                 </label>
               </div>
               
-              <Input
+              <PasswordInputField
                 label="设置密码"
-                type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(value) => setPassword(value)}
                 placeholder="至少8个字符"
+                showRequirements={true}
+                showStrength={true}
                 autoComplete="new-password"
               />
               
@@ -670,6 +686,11 @@ export const CreateAccountPathCPage: React.FC = () => {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="再次输入密码"
                 autoComplete="new-password"
+                error={
+                  confirmPassword && password !== confirmPassword
+                    ? '两次输入的密码不一致'
+                    : undefined
+                }
               />
             </>
           )}
@@ -773,7 +794,7 @@ export const CreateAccountPathCPage: React.FC = () => {
               label="自定义存储端点"
               value={customStorageEndpoint}
               onChange={(e) => setCustomStorageEndpoint(e.target.value)}
-              placeholder="https://your-storage-endpoint.com"
+              placeholder="例如：https://storage.example.com"
             />
           )}
           
@@ -783,7 +804,7 @@ export const CreateAccountPathCPage: React.FC = () => {
             label="渠道名称 *"
             value={channelName}
             onChange={(e) => setChannelName(e.target.value)}
-            placeholder="例如：Twitter推广"
+            placeholder="例如：社群推广渠道"
             required
           />
           

@@ -16,6 +16,10 @@
 import { IStorageProvider, StorageProviderType } from '@/interfaces/IStorageProvider';
 import { storageAdapter } from '@/adapters/StorageAdapter';
 
+// 直接使用字符串字面量，避免枚举加载顺序问题
+// 在生产构建中，枚举可能被打包到不同的 chunk，导致加载顺序不确定
+const IPFS_TYPE_VALUE = 'ipfs' as const;
+
 /**
  * IPFS配置接口
  */
@@ -65,7 +69,12 @@ export interface IPFSConfig {
  * 使用公共IPFS网关和Pin服务进行数据存储
  */
 export class DefaultIPFSStorageProvider implements IStorageProvider {
-  readonly type = StorageProviderType.IPFS;
+  // 使用 getter 延迟计算，完全避免在类属性初始化时访问枚举
+  // 这样可以确保即使枚举未加载也能正常工作
+  get type(): StorageProviderType {
+    // 直接返回字符串字面量，类型系统会确保兼容性
+    return IPFS_TYPE_VALUE as StorageProviderType;
+  }
   readonly name = 'IPFS (Default)';
 
   /**
@@ -80,7 +89,7 @@ export class DefaultIPFSStorageProvider implements IStorageProvider {
   private readonly LOCAL_FALLBACK_PREFIX = 'local-ipfs-';
   
   private config: Required<IPFSConfig>;
-  private cache: Map<string, any> = new Map();
+  private cache: Map<string, unknown> = new Map();
   
   constructor(config: IPFSConfig = {}) {
     this.config = {
@@ -101,7 +110,7 @@ export class DefaultIPFSStorageProvider implements IStorageProvider {
    * @param data 要存储的数据
    * @returns IPFS CID
    */
-  async add(data: any): Promise<string> {
+  async add(data: unknown): Promise<string> {
     try {
       // 无 Pin 服务时降级到本地存储，保证纯前端可用
       if (this.config.pinService.type === 'public') {
@@ -138,7 +147,7 @@ export class DefaultIPFSStorageProvider implements IStorageProvider {
    * @param cid IPFS CID
    * @returns 存储的数据
    */
-  async get<T = any>(cid: string): Promise<T> {
+  async get<T = unknown>(cid: string): Promise<T> {
     // 本地降级存储：直接从 storageAdapter 读取
     if (cid.startsWith(this.LOCAL_FALLBACK_PREFIX)) {
       const cached = this.config.enableCache ? this.cache.get(cid) : undefined;
@@ -232,7 +241,7 @@ export class DefaultIPFSStorageProvider implements IStorageProvider {
    * @param cids CID数组
    * @returns 数据数组
    */
-  async getBatch<T = any>(cids: string[]): Promise<T[]> {
+  async getBatch<T = unknown>(cids: string[]): Promise<T[]> {
     return Promise.all(cids.map(cid => this.get<T>(cid)));
   }
   

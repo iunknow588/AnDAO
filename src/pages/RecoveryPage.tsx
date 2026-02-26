@@ -4,13 +4,15 @@
  * 社交恢复流程，包括发起恢复请求和守护人投票
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores';
 import { guardianService } from '@/services/GuardianService';
 import { keyManagerService } from '@/services/KeyManagerService';
 import { ErrorHandler } from '@/utils/errors';
+import { validateEvmAddress } from '@/utils/pathFlowValidation';
+import { trimInputFields, trimInputValue, validateRequiredFields } from '@/utils/formValidation';
 import type { Address } from 'viem';
 
 const Container = styled.div`
@@ -116,22 +118,49 @@ export const RecoveryPage = observer(() => {
   const [newOwnerPassword, setNewOwnerPassword] = useState('');
   const [isGeneratingKey, setIsGeneratingKey] = useState(false);
   const [generatedKeyAddress, setGeneratedKeyAddress] = useState<string | null>(null);
+  const [voteAccountAddress, setVoteAccountAddress] = useState('');
+  const [recoveryId, setRecoveryId] = useState('');
+  const [guardianPassword, setGuardianPassword] = useState('');
+  const [isVoting, setIsVoting] = useState(false);
 
   const currentAccount = accountStore.currentAccount;
   const currentChainId = currentAccount?.chainId || 0;
 
   const handleInitiateRecovery = async () => {
-    if (!accountAddress || !newOwnerAddress) {
-      setError('请填写所有字段');
+    const normalizedFields = trimInputFields({
+      accountAddress,
+      newOwnerAddress,
+      password,
+    });
+    const accountAddressValue = normalizedFields.accountAddress;
+    const newOwnerAddressValue = normalizedFields.newOwnerAddress;
+    const passwordValue = normalizedFields.password;
+
+    const requiredError = validateRequiredFields(
+      [
+        { value: accountAddressValue, label: '账户地址' },
+        { value: newOwnerAddressValue, label: '新所有者地址' },
+      ],
+      '请填写所有字段'
+    );
+    if (requiredError) {
+      setError(requiredError);
       return;
     }
 
-    if (!accountAddress.startsWith('0x') || !newOwnerAddress.startsWith('0x')) {
-      setError('请输入有效的地址');
+    const accountAddressError = validateEvmAddress(accountAddressValue, '账户地址');
+    if (accountAddressError) {
+      setError(accountAddressError);
       return;
     }
 
-    if (!password) {
+    const newOwnerAddressError = validateEvmAddress(newOwnerAddressValue, '新所有者地址');
+    if (newOwnerAddressError) {
+      setError(newOwnerAddressError);
+      return;
+    }
+
+    if (!passwordValue) {
       setError('请输入密码以解锁私钥');
       return;
     }
@@ -143,26 +172,31 @@ export const RecoveryPage = observer(() => {
     try {
       // 从安全存储获取签名者私钥
       // 注意：恢复流程中，可能需要使用守护人的私钥，这里简化处理
-      const signerAddress = accountAddress as Address;
-      const signerPrivateKey = await keyManagerService.getPrivateKey(signerAddress, password);
+      const signerAddress = accountAddressValue as Address;
+      const signerPrivateKey = await keyManagerService.getPrivateKey(signerAddress, passwordValue);
 
       if (!signerPrivateKey) {
         setError('无法获取签名者私钥，请检查密码');
         return;
       }
 
-      const txHash = await guardianService.initiateRecovery(
-        accountAddress as Address,
+      // initiateRecovery 返回 { recoveryId, txHash }，同时在本地缓存恢复请求
+      const { recoveryId: createdRecoveryId, txHash } = await guardianService.initiateRecovery(
+        accountAddressValue as Address,
         currentChainId,
-        newOwnerAddress as Address,
+        newOwnerAddressValue as Address,
+        undefined,
         signerPrivateKey
       );
 
-      setSuccess(`恢复请求已发起，交易哈希: ${txHash}`);
+      // 将生成的恢复请求 ID 预填到“守护人投票”区域，便于后续操作
+      setRecoveryId(createdRecoveryId);
+
+      setSuccess(`恢复请求已发起，恢复ID: ${createdRecoveryId}，交易哈希: ${txHash}`);
       setAccountAddress('');
       setNewOwnerAddress('');
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsInitiating(false);
     }
@@ -175,7 +209,8 @@ export const RecoveryPage = observer(() => {
     setError(null);
     setSuccess(null);
 
-    if (!newOwnerPassword) {
+    const newOwnerPasswordValue = trimInputValue(newOwnerPassword);
+    if (!newOwnerPasswordValue) {
       setError('请设置新密钥的加密密码');
       return;
     }
@@ -183,14 +218,91 @@ export const RecoveryPage = observer(() => {
     setIsGeneratingKey(true);
     try {
       const { address, privateKey } = await keyManagerService.generatePrivateKey();
-      await keyManagerService.savePrivateKey(address as Address, privateKey, newOwnerPassword);
+      await keyManagerService.savePrivateKey(address as Address, privateKey, newOwnerPasswordValue);
       setNewOwnerAddress(address);
       setGeneratedKeyAddress(address);
       setSuccess(`已生成新的所有者密钥，地址：${address}`);
     } catch (err) {
-      setError(ErrorHandler.handleError(err));
+      setError(ErrorHandler.handleAndShow(err));
     } finally {
       setIsGeneratingKey(false);
+    }
+  };
+
+  /**
+   * 守护人投票支持恢复请求
+   *
+   * 技术路径：
+   * 1. 当前钱包中的账户即为守护人账户（guardianAddress = currentAccount.owner/address）
+   * 2. 通过 guardianPassword 从本地安全存储中解密出守护人的私钥
+   * 3. 调用 GuardianService.voteForRecovery，内部根据私钥推导守护人地址并发送交易到恢复插件
+   * 4. 恢复插件在链上根据当前守护人列表和投票记录统计是否已满足“超过一半守护人同意”的多数规则
+   */
+  const handleGuardianVote = async () => {
+    if (!currentAccount) {
+      setError('请先选择守护人账户');
+      return;
+    }
+
+    const normalizedFields = trimInputFields({
+      voteAccountAddress,
+      recoveryId,
+      guardianPassword,
+    });
+    const voteAccountAddressValue = normalizedFields.voteAccountAddress;
+    const recoveryIdValue = normalizedFields.recoveryId;
+    const guardianPasswordValue = normalizedFields.guardianPassword;
+
+    const requiredError = validateRequiredFields([
+      { value: voteAccountAddressValue, label: '要恢复的账户地址' },
+      { value: recoveryIdValue, label: '恢复请求编号' },
+    ]);
+    if (requiredError) {
+      setError(requiredError);
+      return;
+    }
+
+    const voteAccountAddressError = validateEvmAddress(voteAccountAddressValue, '要恢复的账户地址');
+    if (voteAccountAddressError) {
+      setError(voteAccountAddressError);
+      return;
+    }
+
+    if (!guardianPasswordValue) {
+      setError('请输入守护人账户的密码');
+      return;
+    }
+
+    setIsVoting(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      // 从安全存储获取守护人私钥（使用当前账户的 owner 地址）
+      const guardianOwnerAddress = currentAccount.owner as Address;
+      const guardianPrivateKey = await keyManagerService.getPrivateKey(
+        guardianOwnerAddress,
+        guardianPasswordValue
+      );
+
+      if (!guardianPrivateKey) {
+        setError('无法解锁守护人私钥，请检查密码');
+        return;
+      }
+
+      const txHash = await guardianService.voteForRecovery(
+        voteAccountAddressValue as Address,
+        currentChainId,
+        recoveryIdValue,
+        guardianPrivateKey
+      );
+
+      setSuccess(`投票已提交，交易哈希：${txHash}`);
+      setGuardianPassword('');
+    } catch (err) {
+      setError(ErrorHandler.handleAndShow(err));
+    } finally {
+      setIsVoting(false);
     }
   };
 
@@ -211,7 +323,7 @@ export const RecoveryPage = observer(() => {
         <SectionTitle>发起恢复请求</SectionTitle>
         <InfoBox>
           如果您丢失了账户的私钥，可以通过守护人投票来恢复账户控制权。
-          恢复后，账户的所有权将转移给新的所有者地址。
+          当超过一半的守护人同意恢复时，恢复插件会在链上自动完成恢复，账户的所有权将转移给新的所有者地址。
         </InfoBox>
 
         <Input
@@ -276,13 +388,42 @@ export const RecoveryPage = observer(() => {
         <SectionTitle>守护人投票</SectionTitle>
         <InfoBox>
           如果您是账户的守护人，可以在此投票支持或反对恢复请求。
-          需要足够的守护人投票才能完成恢复。
+          当支持恢复的守护人数超过当前守护人总数的一半时（多数守护人同意），恢复将被执行。
         </InfoBox>
-        <InfoBox style={{ background: '#f8f9fa', borderColor: '#dee2e6' }}>
-          守护人投票功能正在开发中，敬请期待。
-        </InfoBox>
+        <Input
+          type="text"
+          placeholder="要恢复的账户地址 (0x...)"
+          value={voteAccountAddress}
+          onChange={(e) => setVoteAccountAddress(e.target.value)}
+          disabled={isVoting}
+        />
+        <Input
+          type="text"
+          placeholder="恢复请求ID（例如 recovery_xxx 或链上 bytes32）"
+          value={recoveryId}
+          onChange={(e) => setRecoveryId(e.target.value)}
+          disabled={isVoting}
+        />
+        <Input
+          type="password"
+          placeholder="守护人账户密码（用于解锁私钥）"
+          value={guardianPassword}
+          onChange={(e) => setGuardianPassword(e.target.value)}
+          disabled={isVoting}
+        />
+        <Button
+          onClick={handleGuardianVote}
+          disabled={
+            isVoting ||
+            !voteAccountAddress ||
+            !recoveryId ||
+            !guardianPassword ||
+            !currentAccount
+          }
+        >
+          {isVoting ? '投票中...' : '以当前账户身份投票支持恢复'}
+        </Button>
       </Card>
     </Container>
   );
 });
-

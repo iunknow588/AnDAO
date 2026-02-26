@@ -4,12 +4,17 @@
  * 参考 Keplr 钱包的创建账户流程，但代码完全独立实现
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores';
 import { useNavigate } from 'react-router-dom';
 import { DEFAULT_CHAIN_CONFIG } from '@/config/chains';
+import {
+  normalizePrivateKeyInput,
+  validateEvmAddress,
+  validatePrivateKeyFormat,
+} from '@/utils/pathFlowValidation';
 
 const Container = styled.div`
   max-width: 600px;
@@ -82,8 +87,9 @@ export const CreateAccountPage = observer(() => {
   const [error, setError] = useState<string | null>(null);
 
   const handleCreate = async () => {
-    if (!ownerAddress || !ownerAddress.startsWith('0x')) {
-      setError('Please enter a valid owner address');
+    const ownerAddressError = validateEvmAddress(ownerAddress, '所有者地址');
+    if (ownerAddressError) {
+      setError(ownerAddressError);
       return;
     }
 
@@ -99,7 +105,7 @@ export const CreateAccountPage = observer(() => {
         const { authService } = await import('@/services/AuthService');
         
         if (!authService.isAuthenticated()) {
-          throw new Error('Please login first to use existing key');
+          throw new Error('请先登录后再使用已保存私钥');
         }
 
         const privateKeyFromSession = await keyManagerService.getPrivateKeyFromSession(
@@ -107,29 +113,31 @@ export const CreateAccountPage = observer(() => {
         );
         
         if (!privateKeyFromSession) {
-          throw new Error('Private key not found. Please import or enter private key manually.');
+          throw new Error('未找到私钥，请先导入私钥或手动输入');
         }
 
         signerPrivateKey = privateKeyFromSession;
       } else {
         // 使用用户输入的私钥
-        if (!privateKey || !privateKey.startsWith('0x')) {
-          setError('Please enter a valid private key');
+        const privateKeyError = validatePrivateKeyFormat(privateKey, '私钥');
+        if (privateKeyError) {
+          setError(privateKeyError);
           setIsCreating(false);
           return;
         }
+        const normalizedPrivateKey = normalizePrivateKeyInput(privateKey);
 
         // 验证私钥对应的地址是否匹配
         const { keyManagerService } = await import('@/services/KeyManagerService');
-        const addressFromKey = keyManagerService.getAddressFromPrivateKey(privateKey as `0x${string}`);
+        const addressFromKey = keyManagerService.getAddressFromPrivateKey(normalizedPrivateKey);
         
         if (addressFromKey.toLowerCase() !== ownerAddress.toLowerCase()) {
-          setError('Private key does not match the owner address');
+          setError('私钥与所有者地址不匹配');
           setIsCreating(false);
           return;
         }
 
-        signerPrivateKey = privateKey as `0x${string}`;
+        signerPrivateKey = normalizedPrivateKey;
       }
 
       await accountStore.createAccount(
@@ -139,8 +147,8 @@ export const CreateAccountPage = observer(() => {
       );
       navigate('/');
     } catch (error) {
-      console.error('Failed to create account:', error);
-      setError(error instanceof Error ? error.message : 'Failed to create account');
+      console.error('创建账户失败:', error);
+      setError(error instanceof Error ? error.message : '创建账户失败');
     } finally {
       setIsCreating(false);
     }
@@ -151,7 +159,7 @@ export const CreateAccountPage = observer(() => {
       <Card>
         <Title>创建智能合约账户</Title>
         <p style={{ color: '#666', marginBottom: '24px' }}>
-          输入外部Gas费用代付账户地址（EOA地址）来创建智能合约账户
+          输入所有者地址（EOA）来创建智能合约账户
         </p>
 
         <Input
@@ -202,4 +210,3 @@ export const CreateAccountPage = observer(() => {
     </Container>
   );
 });
-

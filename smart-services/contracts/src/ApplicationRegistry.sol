@@ -82,7 +82,7 @@ contract ApplicationRegistry {
     mapping(address => SponsorInfo) public sponsors;
     mapping(address => SponsorRules) public sponsorRules;
     mapping(address => uint256) public sponsorDailyCount; // 每日赞助计数
-    mapping(uint256 => uint256) public sponsorDailyReset; // 每日重置时间戳
+    mapping(address => uint256) public sponsorDailyReset; // 每日重置时间戳
     
     // 事件
     event ApplicationRegistered(

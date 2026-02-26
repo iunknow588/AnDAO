@@ -9,27 +9,23 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+      includeAssets: ['favicon.ico'],
       manifest: {
         name: 'AnDaoWallet',
         short_name: 'AnDaoWallet',
         description: 'Smart Contract Wallet based on Account Abstraction (ERC-4337)',
-        theme_color: '#ffffff',
+        theme_color: '#4c6ef5',
         icons: [
           {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
+            src: '/icon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any maskable'
           }
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+        globPatterns: ['**/*.{js,css,html,ico}']
       }
     })
   ],
@@ -59,9 +55,14 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks: (id) => {
+          // Only split third-party dependencies to avoid circular app chunks.
+          if (!id.includes('/node_modules/')) {
+            return;
+          }
           // React 相关
           if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
             return 'react-vendor';
@@ -74,17 +75,7 @@ export default defineConfig({
           if (id.includes('viem') || id.includes('ethers')) {
             return 'web3-vendor';
           }
-          // 页面组件
-          if (id.includes('/pages/')) {
-            return 'pages';
-          }
-          // 服务层
-          if (id.includes('/services/')) {
-            return 'services';
-          }
         },
-        // 优化 chunk 大小
-        chunkSizeWarningLimit: 1000,
       }
     },
     // 启用压缩
@@ -99,4 +90,3 @@ export default defineConfig({
     cssCodeSplit: true,
   }
 });
-

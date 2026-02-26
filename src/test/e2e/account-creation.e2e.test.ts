@@ -16,7 +16,6 @@ import * as chains from '@/config/chains';
 import type { Address } from 'viem';
 
 describe('账户创建流程 E2E', () => {
-  const testPassword = 'test-password-123';
   const testOwnerAddress = '0x1234567890123456789012345678901234567890' as Address;
   const predictedMantle = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as Address;
   const predictedInjective = '0xcccccccccccccccccccccccccccccccccccccccc' as Address;
@@ -113,15 +112,15 @@ describe('账户创建流程 E2E', () => {
     // 2. 在 Mantle 上创建账户
     const mantleAddress = await accountManager.createAndDeployAccount(testOwnerAddress, 5000, testPrivateKey);
 
-    // 3. 在 Injective 上创建账户（假设链ID为888）
-    const injectiveAddress = await accountManager.createAndDeployAccount(testOwnerAddress, 888, testPrivateKey);
+    // 3. 在 Injective EVM 测试网上创建账户（chainId=1439）
+    const injectiveAddress = await accountManager.createAndDeployAccount(testOwnerAddress, 1439, testPrivateKey);
 
     // 4. 验证两个账户地址不同（因为链ID不同）
     expect(mantleAddress).not.toBe(injectiveAddress);
 
     // 5. 验证两个账户都已保存
     const savedMantle = await accountManager.getAccountByAddress(mantleAddress, 5000);
-    const savedInjective = await accountManager.getAccountByAddress(injectiveAddress, 888);
+    const savedInjective = await accountManager.getAccountByAddress(injectiveAddress, 1439);
 
     expect(savedMantle).toBeDefined();
     expect(savedInjective).toBeDefined();
@@ -134,7 +133,7 @@ describe('账户创建流程 E2E', () => {
 
     // 2. 创建多个账户
     const address1 = await accountManager.createAndDeployAccount(testOwnerAddress, 5000, testPrivateKey);
-    const address2 = await accountManager.createAndDeployAccount(testOwnerAddress, 888, testPrivateKey);
+    const address2 = await accountManager.createAndDeployAccount(testOwnerAddress, 1439, testPrivateKey);
 
     // 3. 获取所有账户
     const allAccounts = await accountManager.getAllAccounts();
@@ -163,4 +162,3 @@ describe('账户创建流程 E2E', () => {
     expect(nonExistent).toBe(false);
   });
 });
-

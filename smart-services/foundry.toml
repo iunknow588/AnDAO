@@ -17,11 +17,15 @@ via-ir = true
 [rpc_endpoints]
 mantle_sepolia = "https://rpc.sepolia.mantle.xyz"
 mantle_mainnet = "https://rpc.mantle.xyz"
+injective_testnet = "https://k8s.testnet.json-rpc.injective.network"
+injective_mainnet = "https://sentry.evm-rpc.injective.network"
 
 # Etherscan configuration for contract verification
 [etherscan]
 mantle_sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api-sepolia.mantlescan.xyz/api" }
 mantle_mainnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api.mantlescan.xyz/api" }
+injective_testnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api-testnet.blockscout.injective.network/api" }
+injective_mainnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api.blockscout.injective.network/api" }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 [fuzz]

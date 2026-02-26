@@ -6,6 +6,8 @@
  * @module services/storage
  */
 
-export { IStorageProvider, StorageProviderType, StorageProviderConfig } from '@/interfaces/IStorageProvider';
-export { DefaultIPFSStorageProvider, IPFSConfig } from './DefaultIPFSStorageProvider';
+export { StorageProviderType } from '@/interfaces/IStorageProvider';
+export type { IStorageProvider, StorageProviderConfig } from '@/interfaces/IStorageProvider';
+export { DefaultIPFSStorageProvider } from './DefaultIPFSStorageProvider';
+export type { IPFSConfig } from './DefaultIPFSStorageProvider';
 export { StorageProviderManager, storageProviderManager } from './StorageProviderManager';

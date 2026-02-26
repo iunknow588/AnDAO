@@ -19,11 +19,14 @@
  */
 
 import { Address, Hash } from 'viem';
-import { AccountManager } from './AccountManager';
-import { KeyManagerService } from './KeyManagerService';
-import { TransactionRelayer } from './TransactionRelayer';
-import { StorageProviderManager } from './storage/StorageProviderManager';
-import { applicationRegistryClient, ApplicationStatus as ContractApplicationStatus } from './ApplicationRegistryClient';
+import { accountManager } from './AccountManager';
+import { keyManagerService } from './KeyManagerService';
+import { storageProviderManager } from './storage/StorageProviderManager';
+import {
+  applicationRegistryClient,
+  ApplicationStatus as ContractApplicationStatus,
+  type ApplicationRegistryRecord,
+} from './ApplicationRegistryClient';
 import { IStorageProvider, StorageProviderType, StorageProviderConfig } from '@/interfaces/IStorageProvider';
 import {
   Sponsor,
@@ -32,8 +35,6 @@ import {
   ApplicationStatus,
   ReviewRecord,
   SponsorRegistrationParams,
-  SponsorAccount,
-  SponsorRules,
   ChannelInfo,
   ChannelStats,
 } from '@/types/sponsor';
@@ -41,6 +42,16 @@ import { ErrorHandler, ErrorCode } from '@/utils/errors';
 import { logger } from '@/utils/logger';
 
 const LOG_CONTEXT = 'SponsorService';
+export type SponsorApplicationsDataSource =
+  | 'indexer'
+  | 'indexer-with-fallback'
+  | 'chain-fallback'
+  | 'cache-only';
+
+export interface SponsorApplicationsResult {
+  applications: Application[];
+  dataSource: SponsorApplicationsDataSource;
+}
 
 /**
  * 赞助商服务类
@@ -48,10 +59,8 @@ const LOG_CONTEXT = 'SponsorService';
  * 单例模式，全局管理赞助商相关功能
  */
 export class SponsorService {
-  private accountManager: AccountManager;
-  private keyManagerService: KeyManagerService;
-  private transactionRelayer: TransactionRelayer;
-  private storageManager: StorageProviderManager;
+  private accountManager = accountManager;
+  private keyManagerService = keyManagerService;
   
   // 本地缓存（实际应该使用持久化存储）
   private sponsors: Map<string, Sponsor> = new Map();
@@ -60,13 +69,6 @@ export class SponsorService {
   
   // 轮询定时器
   private pollingTimers: Map<string, NodeJS.Timeout> = new Map();
-  
-  constructor() {
-    this.accountManager = new AccountManager();
-    this.keyManagerService = new KeyManagerService();
-    this.transactionRelayer = new TransactionRelayer();
-    this.storageManager = new StorageProviderManager();
-  }
   
   /**
    * 初始化服务
@@ -249,9 +251,9 @@ export class SponsorService {
       // 否则使用默认IPFS存储
       let storageProvider: IStorageProvider;
       if (sponsor.storageType) {
-        storageProvider = this.storageManager.getProvider(sponsor.storageType);
+        storageProvider = storageProviderManager.getProvider(sponsor.storageType);
       } else {
-        storageProvider = this.storageManager.getDefaultProvider();
+        storageProvider = storageProviderManager.getDefaultProvider();
       }
       
       // 3. 创建申请详情
@@ -279,6 +281,7 @@ export class SponsorService {
         ownerAddress: params.ownerAddress,
         eoaAddress: params.eoaAddress,
         sponsorId: params.sponsorId,
+        sponsorAddress: sponsor.address,
         chainId: params.chainId,
         status: 'pending',
         createdAt: Date.now(),
@@ -309,12 +312,12 @@ export class SponsorService {
       // );
       
       // 当前实现：链上注册延迟到审核通过时进行
-      logger.info('Application created locally, chain registration will be done during review', {
+      logger.info('Application created locally, chain registration will be done during review', LOG_CONTEXT, {
         applicationId,
         sponsorId: params.sponsorId,
       });
       
-      logger.info('Application created', { applicationId, sponsorId: params.sponsorId });
+      logger.info('Application created', LOG_CONTEXT, { applicationId, sponsorId: params.sponsorId });
       
       return application;
     } catch (error) {
@@ -336,33 +339,21 @@ export class SponsorService {
    * const status = await sponsorService.getApplicationStatus('app-123');
    * ```
    */
-  async getApplicationStatus(applicationId: string): Promise<ApplicationStatus> {
+  async getApplicationStatus(applicationId: string, chainId?: number): Promise<ApplicationStatus> {
     try {
       // 1. 从本地缓存检查
       const cached = this.applications.get(applicationId);
       if (cached) {
         return cached.status;
       }
-      
-      // 2. 从链上索引合约查询最新状态
-      try {
-        const chainId = cached?.chainId || 5001; // 默认Mantle测试网
-        const index = await applicationRegistryClient.getApplication(chainId, applicationId);
-        if (index && index.status !== undefined) {
-          // 转换合约状态到应用状态
-          const statusMap: Record<number, ApplicationStatus> = {
-            0: 'pending',
-            1: 'approved',
-            2: 'rejected',
-            3: 'deployed',
-          };
-          return statusMap[index.status] || 'pending';
-        }
-      } catch (error) {
-        logger.warn('Failed to query application status from chain', LOG_CONTEXT, error as Error);
-        // 链上查询失败，使用本地缓存
+
+      if (typeof chainId === 'number') {
+        return this.queryApplicationStatusFromChain(chainId, applicationId);
       }
-      
+
+      logger.warn('Application not found in local cache, skip chain query without explicit chain context', LOG_CONTEXT, {
+        applicationId,
+      });
       return 'pending';
     } catch (error) {
       ErrorHandler.handleError(error, ErrorCode.NETWORK_ERROR);
@@ -394,16 +385,24 @@ export class SponsorService {
     // 清除之前的轮询
     this.stopPolling(applicationId);
     
-    // 开始轮询
-    const timer = setInterval(async () => {
-      try {
-        const currentStatus = await this.getApplicationStatus(applicationId);
-        const cached = this.applications.get(applicationId);
+      // 开始轮询
+      const timer = setInterval(async () => {
+        try {
+          const cached = this.applications.get(applicationId);
+          if (!cached) {
+            logger.warn('Skip polling status update because application is missing from local cache', LOG_CONTEXT, {
+              applicationId,
+            });
+            return;
+          }
+
+          // 优先使用申请记录中的链上下文，避免硬编码链ID
+          const currentStatus = await this.queryApplicationStatusFromChain(cached.chainId, applicationId);
         
-        if (cached && cached.status !== currentStatus) {
-          // 状态变化，更新缓存并调用回调
-          cached.status = currentStatus;
-          this.applications.set(applicationId, cached);
+          if (cached && cached.status !== currentStatus) {
+            // 状态变化，更新缓存并调用回调
+            cached.status = currentStatus;
+            this.applications.set(applicationId, cached);
           onStatusChange(currentStatus);
           
           // 如果状态为deployed或rejected，停止轮询
@@ -433,6 +432,102 @@ export class SponsorService {
   }
   
   /**
+   * 获取赞助商的所有申请列表
+   * 
+   * 从本地缓存和链上查询获取指定赞助商的所有申请
+   * 
+   * @param sponsorId 赞助商ID（可以是地址或ID）
+   * @returns 申请列表
+   * 
+   * @example
+   * ```typescript
+   * const applications = await sponsorService.getApplicationsBySponsor('sponsor-1');
+   * ```
+   */
+  async getApplicationsBySponsor(sponsorId: string, chainId?: number): Promise<Application[]> {
+    const result = await this.getApplicationsBySponsorWithSource(sponsorId, chainId);
+    return result.applications;
+  }
+
+  async getApplicationsBySponsorWithSource(
+    sponsorId: string,
+    chainId?: number
+  ): Promise<SponsorApplicationsResult> {
+    try {
+      // 1. 从本地缓存获取
+      const sponsorAddressValue = this.extractSponsorAddress(sponsorId);
+      const sponsorAddress = sponsorAddressValue?.toLowerCase();
+      const cachedApplications: Application[] = [];
+      for (const [, app] of this.applications.entries()) {
+        if (typeof chainId === 'number' && app.chainId !== chainId) {
+          continue;
+        }
+
+        const appSponsorAddress = app.sponsorAddress?.toLowerCase();
+        const matchesById = app.sponsorId === sponsorId;
+        const matchesByAddress = Boolean(sponsorAddress && appSponsorAddress && appSponsorAddress === sponsorAddress);
+
+        if (matchesById || matchesByAddress) {
+          cachedApplications.push(app);
+        }
+      }
+
+      // 2. 优先尝试索引层按赞助商批量查询（可插拔），拿到时用于刷新状态
+      let chainStatusMap = new Map<string, ApplicationStatus>();
+      let usedIndexer = false;
+      if (typeof chainId === 'number' && sponsorAddressValue) {
+        const chainRecords = await applicationRegistryClient.listApplicationsBySponsor(chainId, sponsorAddressValue);
+        usedIndexer =
+          applicationRegistryClient.isSponsorApplicationsResolverConfigured() && chainRecords.length > 0;
+        chainStatusMap = this.buildChainStatusMap(chainRecords);
+      }
+
+      // 3. 降级：逐条查询链上状态并刷新本地申请状态
+      let usedChainFallback = false;
+      await Promise.all(
+        cachedApplications.map(async (app) => {
+          let latestStatus = chainStatusMap.get(app.id);
+          if (!latestStatus) {
+            usedChainFallback = true;
+            latestStatus = await this.queryApplicationStatusFromChain(app.chainId, app.id);
+          }
+          if (latestStatus !== app.status) {
+            app.status = latestStatus;
+            this.applications.set(app.id, app);
+          }
+        })
+      );
+
+      logger.info('Loaded applications for sponsor', LOG_CONTEXT, {
+        sponsorId,
+        chainId,
+        count: cachedApplications.length,
+      });
+
+      // 按创建时间倒序排序
+      const applications = cachedApplications.sort((a, b) => {
+        const timeA = a.createdAt || 0;
+        const timeB = b.createdAt || 0;
+        return timeB - timeA;
+      });
+
+      const dataSource: SponsorApplicationsDataSource =
+        usedIndexer && usedChainFallback
+          ? 'indexer-with-fallback'
+          : usedIndexer
+          ? 'indexer'
+          : usedChainFallback
+          ? 'chain-fallback'
+          : 'cache-only';
+
+      return { applications, dataSource };
+    } catch (error) {
+      ErrorHandler.handleError(error, ErrorCode.NETWORK_ERROR);
+      return { applications: [], dataSource: 'cache-only' };
+    }
+  }
+  
+  /**
    * 赞助商：注册链上
    * 
    * 在链上注册赞助商信息
@@ -452,33 +547,9 @@ export class SponsorService {
    */
   async registerOnChain(params: SponsorRegistrationParams): Promise<string> {
     try {
-      // 生成赞助商ID（使用地址作为ID的一部分）
-      const sponsorId = `sponsor-${params.sponsorAddress.slice(2, 10)}-${Date.now()}`;
-      
-      // 调用链上ApplicationRegistry合约注册赞助商
-      // 注意：此方法需要密码来解锁Gas账户私钥
-      // 实际使用时，应该由UI调用并传入密码参数
-      // 
-      // 当前实现：链上注册需要单独的方法调用，传入密码
-      // 可以添加一个registerOnChainWithPassword方法，或者修改此方法添加password参数
-      // 
-      // 示例：
-      // async registerOnChain(params: SponsorRegistrationParams, password: string)
-      // 
-      // 然后在这里调用：
-      // const gasAccountPrivateKey = await this.keyManagerService.getPrivateKey(
-      //   params.gasAccountAddress,
-      //   password
-      // );
-      // await applicationRegistryClient.registerSponsor(...);
-      // await applicationRegistryClient.updateSponsorRules(...);
-      
-      logger.info('Sponsor registered locally', LOG_CONTEXT, {
-        sponsorId,
-        address: params.sponsorAddress,
-        note: 'Chain registration requires password, use registerOnChainWithPassword method',
-      });
-      
+      // sponsorId 保留完整地址，确保可逆和跨端一致
+      const sponsorId = `sponsor-${params.sponsorAddress.toLowerCase()}-${Date.now()}`;
+
       // 创建赞助商记录
       const sponsor: Sponsor = {
         id: sponsorId,
@@ -495,8 +566,50 @@ export class SponsorService {
       };
       
       this.sponsors.set(sponsorId, sponsor);
-      
-      logger.info('Sponsor registered', LOG_CONTEXT, { sponsorId, address: params.sponsorAddress });
+
+      // 密码与链上下文齐备时执行真实链上注册；否则降级为本地注册
+      if (params.password && typeof params.chainId === 'number') {
+        const gasAccountPrivateKey = await this.keyManagerService.getPrivateKey(
+          params.gasAccountAddress,
+          params.password
+        );
+
+        if (!gasAccountPrivateKey) {
+          throw new Error('Gas account private key not found. Please import and unlock gas account first.');
+        }
+
+        const storageType = params.storageConfig?.type ?? StorageProviderType.IPFS;
+        await applicationRegistryClient.registerSponsor(
+          params.chainId,
+          params.sponsorAddress,
+          params.gasAccountAddress,
+          params.sponsorInfo.name,
+          params.sponsorInfo.description || '',
+          storageType,
+          gasAccountPrivateKey
+        );
+
+        await applicationRegistryClient.updateSponsorRules(
+          params.chainId,
+          BigInt(params.rules.dailyLimit || 0),
+          params.rules.maxGasPerAccount || BigInt(0),
+          params.rules.autoApprove || false,
+          gasAccountPrivateKey
+        );
+
+        logger.info('Sponsor registered on chain and cache', LOG_CONTEXT, {
+          sponsorId,
+          address: params.sponsorAddress,
+          chainId: params.chainId,
+        });
+      } else {
+        logger.warn('Sponsor registered in local cache only (missing password or chainId for on-chain registration)', LOG_CONTEXT, {
+          sponsorId,
+          address: params.sponsorAddress,
+          hasPassword: Boolean(params.password),
+          chainId: params.chainId,
+        });
+      }
       
       return sponsorId;
     } catch (error) {
@@ -543,8 +656,8 @@ export class SponsorService {
       
       // 2. 获取存储提供者
       const storageProvider = application.storageType
-        ? this.storageManager.getProvider(application.storageType)
-        : this.storageManager.getDefaultProvider();
+        ? storageProviderManager.getProvider(application.storageType)
+        : storageProviderManager.getDefaultProvider();
       
       // 3. 创建审核记录
       // 注意：reviewer应该是实际审核者的地址，这里使用赞助商地址作为审核者
@@ -612,7 +725,7 @@ export class SponsorService {
       // 
       // 当前实现：审核通过后，需要手动调用deployAccountForUser
       if (decision === 'approve') {
-        logger.info('Application approved, LOG_CONTEXT, ready for deployment', {
+        logger.info('Application approved, ready for deployment', LOG_CONTEXT, {
           applicationId,
           note: 'Call deployAccountForUser with password to deploy account',
         });
@@ -861,21 +974,29 @@ export class SponsorService {
       // 忽略推荐列表异常，继续尝试链上查询
     }
     
-    // 2. 从链上ApplicationRegistry合约查询
-    // 注意：需要知道赞助商的地址才能查询
-    // sponsorId格式为 "sponsor-{address}-{timestamp}"，可以提取地址
+    // 2. 从链上ApplicationRegistry合约查询（仅当 sponsorId 可解析出完整地址时）
     try {
-      const addressMatch = sponsorId.match(/sponsor-([a-fA-F0-9]+)-/);
-      if (addressMatch) {
-        // 提取地址（前8个字符是地址的一部分）
-        // 实际应该从sponsorId中提取完整地址，或者使用其他方式存储地址映射
-        // 这里简化处理，假设可以从sponsorId中提取
-        const chainId = 5001; // 默认Mantle测试网，实际应该从配置获取
-        const sponsorAddress = `0x${addressMatch[1]}000000000000000000000000` as Address; // 简化处理
-        
-        // 从链上查询赞助商信息
-        const chainSponsor = await applicationRegistryClient.getSponsor(chainId, sponsorAddress);
-        if (chainSponsor && chainSponsor.isActive) {
+      const sponsorAddress = this.extractSponsorAddress(sponsorId);
+      if (sponsorAddress) {
+        const chainIdSet = new Set<number>();
+        for (const app of this.applications.values()) {
+          chainIdSet.add(app.chainId);
+        }
+
+        if (chainIdSet.size === 0) {
+          logger.warn('Skip on-chain sponsor query because no chain context is available', LOG_CONTEXT, {
+            sponsorId,
+          });
+          return null;
+        }
+
+        for (const chainId of chainIdSet) {
+          // 从链上查询赞助商信息
+          const chainSponsor = await applicationRegistryClient.getSponsor(chainId, sponsorAddress);
+          if (!chainSponsor || !chainSponsor.isActive) {
+            continue;
+          }
+
           // 转换链上数据到Sponsor类型
           const sponsor: Sponsor = {
             id: sponsorId,
@@ -886,13 +1007,13 @@ export class SponsorService {
             avgWaitTime: 0, // 需要从统计服务获取
             totalSponsored: 0, // 需要从统计服务获取
             availableBalance: BigInt(0), // 需要查询Gas账户余额
-            storageType: chainSponsor.storageType === 0 
-              ? StorageProviderType.IPFS 
+            storageType: chainSponsor.storageType === 0
+              ? StorageProviderType.IPFS
               : chainSponsor.storageType === 1
               ? StorageProviderType.ARWEAVE
               : StorageProviderType.CUSTOM,
           };
-          
+
           this.sponsors.set(sponsorId, sponsor);
           return sponsor;
         }
@@ -903,6 +1024,54 @@ export class SponsorService {
     }
     
     return null;
+  }
+
+  private async queryApplicationStatusFromChain(chainId: number, applicationId: string): Promise<ApplicationStatus> {
+    try {
+      const index = await applicationRegistryClient.getApplication(chainId, applicationId);
+      if (index && index.status !== undefined) {
+        const statusMap: Record<number, ApplicationStatus> = {
+          0: 'pending',
+          1: 'approved',
+          2: 'rejected',
+          3: 'deployed',
+        };
+        return statusMap[index.status] || 'pending';
+      }
+      return 'pending';
+    } catch (error) {
+      logger.warn('Failed to query application status from chain', LOG_CONTEXT, {
+        applicationId,
+        chainId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 'pending';
+    }
+  }
+
+  private extractSponsorAddress(sponsorId: string): Address | null {
+    if (/^0x[a-fA-F0-9]{40}$/.test(sponsorId)) {
+      return sponsorId as Address;
+    }
+
+    const embeddedAddress = sponsorId.match(/sponsor-(0x[a-fA-F0-9]{40})-/);
+    if (embeddedAddress) {
+      return embeddedAddress[1] as Address;
+    }
+
+    return null;
+  }
+
+  private buildChainStatusMap(records: ApplicationRegistryRecord[]): Map<string, ApplicationStatus> {
+    const statusMap: Record<number, ApplicationStatus> = {
+      0: 'pending',
+      1: 'approved',
+      2: 'rejected',
+      3: 'deployed',
+    };
+    return new Map(
+      records.map((record) => [record.applicationId, statusMap[record.status] || 'pending'])
+    );
   }
 }
 

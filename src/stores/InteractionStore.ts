@@ -33,11 +33,11 @@ export interface InteractionRequest {
   id: string;
   type: InteractionType;
   origin: string; // DApp 来源
-  params: any;
+  params: unknown;
   status: InteractionStatus;
   createdAt: number;
   resolvedAt?: number;
-  result?: any;
+  result?: unknown;
   error?: string;
 }
 
@@ -63,7 +63,7 @@ export class InteractionStore {
   addRequest(
     type: InteractionType,
     origin: string,
-    params: any
+    params: unknown
   ): string {
     const request: InteractionRequest = {
       id: `interaction_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -93,7 +93,7 @@ export class InteractionStore {
    * @param requestId 请求ID
    * @param result 请求结果
    */
-  approveRequest(requestId: string, result: any): void {
+  approveRequest(requestId: string, result: unknown): void {
     const request = this.requests.find((r) => r.id === requestId);
     if (!request) {
       throw new Error(`Request not found: ${requestId}`);
@@ -213,4 +213,3 @@ export class InteractionStore {
 }
 
 export const interactionStore = new InteractionStore();
-

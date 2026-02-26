@@ -4,7 +4,7 @@
  * 允许用户导入已有的智能合约账户
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores';
@@ -12,6 +12,8 @@ import { useNavigate } from 'react-router-dom';
 import { accountManager } from '@/services/AccountManager';
 import type { AccountInfo } from '@/types';
 import { DEFAULT_CHAIN_CONFIG } from '@/config/chains';
+import { validateEvmAddress } from '@/utils/pathFlowValidation';
+import { trimInputFields, validateRequiredFields } from '@/utils/formValidation';
 
 const Container = styled.div`
   max-width: 600px;
@@ -91,19 +93,43 @@ export const ImportWalletPage = observer(() => {
   const [success, setSuccess] = useState<string | null>(null);
 
   const handleImport = async () => {
-    if (!accountAddress || !accountAddress.startsWith('0x') || accountAddress.length !== 42) {
-      setError('Invalid account address');
+    const normalizedFields = trimInputFields({
+      accountAddress,
+      ownerAddress,
+      chainId,
+    });
+    const accountAddressValue = normalizedFields.accountAddress;
+    const ownerAddressValue = normalizedFields.ownerAddress;
+    const chainIdValue = normalizedFields.chainId;
+
+    const requiredError = validateRequiredFields(
+      [
+        { value: accountAddressValue, label: '账户地址' },
+        { value: ownerAddressValue, label: '所有者地址' },
+        { value: chainIdValue, label: '链ID' },
+      ],
+      '请填写所有字段'
+    );
+    if (requiredError) {
+      setError(requiredError);
       return;
     }
 
-    if (!ownerAddress || !ownerAddress.startsWith('0x') || ownerAddress.length !== 42) {
-      setError('Invalid owner address');
+    const accountAddressError = validateEvmAddress(accountAddressValue, '账户地址');
+    if (accountAddressError) {
+      setError(accountAddressError);
       return;
     }
 
-    const chainIdNum = parseInt(chainId, 10);
+    const ownerAddressError = validateEvmAddress(ownerAddressValue, '所有者地址');
+    if (ownerAddressError) {
+      setError(ownerAddressError);
+      return;
+    }
+
+    const chainIdNum = parseInt(chainIdValue, 10);
     if (isNaN(chainIdNum)) {
-      setError('Invalid chain ID');
+      setError('链ID格式无效');
       return;
     }
 
@@ -113,42 +139,40 @@ export const ImportWalletPage = observer(() => {
 
     try {
       // 检查账户是否存在
-      const exists = await accountManager.accountExists(accountAddress as `0x${string}`, chainIdNum);
+      const exists = await accountManager.accountExists(
+        accountAddressValue as `0x${string}`,
+        chainIdNum
+      );
       if (!exists) {
-        setError('Account does not exist on chain');
+        setError('链上不存在该账户');
         setIsImporting(false);
         return;
       }
 
       // 创建账户信息（不实际创建，只是导入）
       const accountInfo: AccountInfo = {
-        address: accountAddress,
+        address: accountAddressValue,
         chainId: chainIdNum,
-        owner: ownerAddress,
+        owner: ownerAddressValue,
         createdAt: Date.now(),
         status: 'deployed',
         deployedAt: Date.now(),
       };
 
-      // 手动保存到 AccountManager（因为这是导入，不是创建）
-      // 需要直接操作 AccountManager 的内部存储
-      const { storageAdapter } = await import('@/adapters/StorageAdapter');
-      const { StorageKey } = await import('@/types');
-      const storedAccounts = await storageAdapter.get<AccountInfo[]>(StorageKey.ACCOUNTS) || [];
-      storedAccounts.push(accountInfo);
-      await storageAdapter.set(StorageKey.ACCOUNTS, storedAccounts);
-
-      // 添加到 AccountStore
       await accountStore.addAccount(accountInfo);
       
-      setSuccess('Account imported successfully');
+      setSuccess('账户导入成功');
       
       // 延迟跳转
       setTimeout(() => {
         navigate('/');
       }, 1000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to import account');
+      if (err instanceof Error && err.message === 'Account already exists') {
+        setError('该账户已存在，无需重复导入');
+      } else {
+        setError(err instanceof Error ? err.message : '导入账户失败');
+      }
     } finally {
       setIsImporting(false);
     }
@@ -180,7 +204,7 @@ export const ImportWalletPage = observer(() => {
 
         <Input
           type="text"
-          placeholder="链 ID"
+          placeholder="链ID"
           value={chainId}
           onChange={(e) => setChainId(e.target.value)}
           disabled={isImporting}
@@ -196,4 +220,3 @@ export const ImportWalletPage = observer(() => {
     </Container>
   );
 });
-

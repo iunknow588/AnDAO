@@ -183,6 +183,8 @@ export const PasswordInput: React.FC<PasswordInputProps> = ({ autoListen = true 
     return () => {
       document.removeEventListener('keydown', handleEscape);
     };
+    // close 依赖包含 currentRequest，若加入依赖将导致每次请求变更都重复绑定事件
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // 生成用途说明文本
@@ -261,5 +263,3 @@ export const PasswordInput: React.FC<PasswordInputProps> = ({ autoListen = true 
 export const PasswordInputProvider: React.FC = () => {
   return <PasswordInput autoListen={true} />;
 };
-
-

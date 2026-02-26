@@ -6,11 +6,12 @@
  */
 
 import type { Address, Hex } from 'viem';
-import { createPublicClient, http, encodeFunctionData } from 'viem';
+import { encodeFunctionData } from 'viem';
 import { IPlugin, PluginType, PluginConfig, PluginExecutionContext, PluginExecutionResult } from '@/types/plugins';
-import { getChainConfigByChainId } from '@/config/chains';
+import { rpcClientManager } from '@/utils/RpcClientManager';
 import { storageAdapter } from '@/adapters/StorageAdapter';
 import { StorageKey } from '@/types';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
 import { transactionRelayer } from './TransactionRelayer';
 
 /**
@@ -78,14 +79,8 @@ export class PluginService {
    * 从链上同步插件状态
    */
   private async syncPluginsFromChain(accountAddress: Address, chainId: number): Promise<void> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      return;
-    }
-
-    const publicClient = createPublicClient({
-      transport: http(chainConfig.rpcUrl),
-    });
+    // 使用 RpcClientManager 获取缓存的 PublicClient 实例
+    const publicClient = rpcClientManager.getPublicClient(chainId);
 
     try {
       // 查询所有类型的已安装插件
@@ -122,10 +117,7 @@ export class PluginService {
     config: PluginConfig,
     signerPrivateKey: Hex
   ): Promise<string> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
-    }
+    requireChainConfig(chainId, ['rpcUrl']);
 
     // 构造安装数据
     const installData = config.installData || '0x';
@@ -173,10 +165,7 @@ export class PluginService {
       throw new Error(`Plugin not found: ${pluginId}`);
     }
 
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Chain config not found for chainId: ${chainId}`);
-    }
+    requireChainConfig(chainId, ['rpcUrl']);
 
     // 编码 uninstallModule 调用
     const callData = encodeFunctionData({
@@ -286,15 +275,8 @@ export class PluginService {
     plugin: IPlugin,
     context: PluginExecutionContext
   ): Promise<PluginExecutionResult> {
-    const chainConfig = getChainConfigByChainId(context.chainId);
-    if (!chainConfig) {
-      return {
-        success: false,
-        error: `Chain config not found for chainId: ${context.chainId}`,
-      };
-    }
-
     try {
+      requireChainConfig(context.chainId, ['rpcUrl']);
       // 构造调用 Kernel.executeFromExecutor 的数据
       // Kernel.executeFromExecutor(executor, target, value, data)
       // 注意：这需要 Kernel 合约支持 executeFromExecutor 方法
@@ -359,19 +341,10 @@ export class PluginService {
     plugin: IPlugin,
     context: PluginExecutionContext
   ): Promise<PluginExecutionResult> {
-    const chainConfig = getChainConfigByChainId(context.chainId);
-    if (!chainConfig) {
-      return {
-        success: false,
-        error: `Chain config not found for chainId: ${context.chainId}`,
-      };
-    }
-
-    const publicClient = createPublicClient({
-      transport: http(chainConfig.rpcUrl),
-    });
-
     try {
+      // 使用 RpcClientManager 获取缓存的 PublicClient 实例
+      const publicClient = rpcClientManager.getPublicClient(context.chainId);
+
       // Hook 插件的 preCheck 方法
       // function preCheck(address msgSender, uint256 msgValue, bytes calldata msgData)
       //   external payable returns (bytes memory hookData)
@@ -432,4 +405,3 @@ export class PluginService {
 }
 
 export const pluginService = new PluginService();
-

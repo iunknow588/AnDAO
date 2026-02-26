@@ -6,11 +6,28 @@
  * 支持多链（Mantle 优先）
  */
 
-import { createPublicClient, http, type Address, type Hash } from 'viem';
+import { type Address, type Hash, type Hex } from 'viem';
 import { Transaction, ChainConfig } from '@/types';
-import { getChainConfigByChainId } from '@/config/chains';
+import { requireChainConfig } from '@/utils/chainConfigValidation';
 import { bundlerClient } from './BundlerClient';
+import { rpcClientManager } from '@/utils/RpcClientManager';
 import { BundlerUnavailableError } from './BundlerClient';
+import { accountManager } from './AccountManager';
+
+/**
+ * 降级模式错误
+ * 
+ * 当所有 Bundler 不可用时，抛出此错误，提示用户可以选择降级模式（自付 Gas）
+ */
+export class FallbackModeError extends Error {
+  code = 'FALLBACK_MODE_AVAILABLE';
+  estimatedGas: bigint;
+  constructor(message: string, estimatedGas: bigint) {
+    super(message);
+    this.name = 'FallbackModeError';
+    this.estimatedGas = estimatedGas;
+  }
+}
 
 /**
  * 从 kernel-types 导入 UserOperation 类型
@@ -41,11 +58,7 @@ export class TransactionRelayer {
     ownerPrivateKey: `0x${string}`,
     value: bigint = BigInt(0)
   ): Promise<Hash> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Unsupported chain: ${chainId}`);
-    }
-
+    const chainConfig = requireChainConfig(chainId, ['rpcUrl']);
     if (!chainConfig.bundlerUrl) {
       throw new BundlerUnavailableError(`Bundler URL not configured for chain: ${chainId}`);
     }
@@ -79,11 +92,7 @@ export class TransactionRelayer {
     transactions: Transaction[],
     ownerPrivateKey: `0x${string}`
   ): Promise<Hash> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Unsupported chain: ${chainId}`);
-    }
-
+    const chainConfig = requireChainConfig(chainId, ['rpcUrl']);
     if (!chainConfig.bundlerUrl) {
       throw new BundlerUnavailableError(`Bundler URL not configured for chain: ${chainId}`);
     }
@@ -120,14 +129,10 @@ export class TransactionRelayer {
     data: string,
     value: bigint = BigInt(0)
   ): Promise<UserOperation> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig) {
-      throw new Error(`Unsupported chain: ${chainId}`);
-    }
+    const chainConfig = requireChainConfig(chainId);
 
-    const publicClient = createPublicClient({
-      transport: http(chainConfig.rpcUrl),
-    });
+    // 使用 RpcClientManager 获取缓存的 PublicClient 实例
+    const publicClient = rpcClientManager.getPublicClient(chainId);
 
     // 获取账户 nonce
     const nonce = await this.getAccountNonce(accountAddress, chainId);
@@ -144,27 +149,33 @@ export class TransactionRelayer {
       sender: accountAddress,
       nonce: nonce,
       initCode: '0x', // 账户已存在，不需要初始化代码
-      callData: callData,
+      callData: callData as Hex,
       maxFeePerGas: gasPrice,
       maxPriorityFeePerGas: maxPriorityFeePerGas,
-      paymasterAndData: chainConfig.paymasterAddress || '0x',
+      paymasterAndData: (chainConfig.paymasterAddress || '0x') as Hex,
     };
 
     // 估算 Gas
-    const gasEstimate = await this.estimateGas(accountAddress, chainId, callData, tempUserOp, chainConfig.bundlerUrl);
+    const gasEstimate = await this.estimateGas(
+      accountAddress,
+      chainId,
+      callData,
+      tempUserOp,
+      chainConfig.bundlerUrl || ''
+    );
 
     // 构造完整的 UserOperation
     const userOp: UserOperation = {
       sender: accountAddress,
       nonce: nonce,
       initCode: '0x', // 账户已存在，不需要初始化代码
-      callData: callData,
+      callData: callData as Hex,
       callGasLimit: gasEstimate.callGasLimit,
       verificationGasLimit: gasEstimate.verificationGasLimit,
       preVerificationGas: gasEstimate.preVerificationGas,
       maxFeePerGas: gasPrice,
       maxPriorityFeePerGas: maxPriorityFeePerGas,
-      paymasterAndData: chainConfig.paymasterAddress || '0x',
+      paymasterAndData: (chainConfig.paymasterAddress || '0x') as Hex,
       signature: '0x', // 将在签名步骤填充
     };
 
@@ -212,18 +223,11 @@ export class TransactionRelayer {
     chainId: number,
     ownerPrivateKey: `0x${string}`
   ): Promise<UserOperation> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig || !chainConfig.entryPointAddress) {
-      throw new Error(`Chain config or EntryPoint address not found for chainId: ${chainId}`);
-    }
+    const chainConfig = requireChainConfig(chainId, ['entryPointAddress', 'rpcUrl']);
 
     // 1. 计算 UserOperation 哈希（EIP-712）
     const { getUserOpHash } = await import('@/utils/eip712');
-    const userOpHash = getUserOpHash(
-      userOp,
-      chainConfig.entryPointAddress as `0x${string}`,
-      chainId
-    );
+    getUserOpHash(userOp, chainConfig.entryPointAddress as `0x${string}`, chainId);
 
     // 2. 使用 owner 私钥签名哈希（EIP-191）
     const { signUserOperation } = await import('@/utils/eip712');
@@ -243,6 +247,8 @@ export class TransactionRelayer {
 
   /**
    * 发送 UserOperation 到 Bundler
+   * 
+   * 如果所有 Bundler 失败，会抛出 FallbackModeError，提示用户可以选择降级模式
    */
   private async sendToBundler(
     userOp: UserOperation,
@@ -263,11 +269,69 @@ export class TransactionRelayer {
       return await bundlerClient.sendUserOperation(userOp, chainId);
     } catch (error) {
       if (error instanceof BundlerUnavailableError) {
-        // 统一抛出可识别错误，便于前端提示「切换 RPC/改为自付 Gas」
-        throw error;
+        // 所有 Bundler 失败，尝试降级模式
+        // 估算降级模式所需的 Gas
+        const estimatedGas = await bundlerClient.estimateDirectGas(userOp, chainId);
+        
+        // 抛出降级模式错误，让 UI 层处理用户确认
+        throw new FallbackModeError(
+          '所有 Bundler 服务不可用。您可以选择自付 Gas 直接发送交易。',
+          estimatedGas
+        );
       }
       throw error;
     }
+  }
+
+  /**
+   * 降级模式：直发 EntryPoint + 自付 Gas
+   * 
+   * 当所有 Bundler 不可用时，直接调用 EntryPoint 合约
+   * 用户需要自付 Gas，账户需要有足够的余额
+   * 
+   * 注意：
+   * - 需要用户确认（因为需要自付 Gas）
+   * - 需要检查账户余额
+   * - 如果切换了 RPC，需要重新计算 userOpHash 并重新签名
+   * 
+   * @param accountAddress 智能合约账户地址
+   * @param chainId 链 ID
+   * @param target 目标地址
+   * @param data 调用数据
+   * @param ownerPrivateKey owner 的私钥（用于签名 UserOperation）
+   * @param signerPrivateKey 签名者私钥（用于发送交易，需要账户有余额）
+   * @param value 转账金额
+   * @param newRpcUrl 新的 RPC URL（如果切换了 RPC，需要重新计算 hash）
+   * @returns 交易哈希
+   */
+  async sendTransactionWithFallback(
+    accountAddress: Address,
+    chainId: number,
+    target: Address,
+    data: string,
+    ownerPrivateKey: `0x${string}`,
+    signerPrivateKey: `0x${string}`,
+    value: bigint = BigInt(0),
+    newRpcUrl?: string
+  ): Promise<Hash> {
+    requireChainConfig(chainId, ['rpcUrl', 'entryPointAddress']);
+
+    // 如果提供了新的 RPC URL，需要重新计算 userOpHash 并重新签名
+    let userOp: UserOperation;
+    if (newRpcUrl) {
+      // 使用新的 RPC URL 重新构造 UserOperation
+      userOp = await this.buildUserOperation(accountAddress, chainId, target, data, value);
+      
+      // 重新签名（因为 userOpHash 可能因为 RPC 切换而改变）
+      userOp = await this.signUserOperation(userOp, chainId, ownerPrivateKey);
+    } else {
+      // 使用原有配置构造 UserOperation
+      userOp = await this.buildUserOperation(accountAddress, chainId, target, data, value);
+      userOp = await this.signUserOperation(userOp, chainId, ownerPrivateKey);
+    }
+
+    // 使用降级模式发送
+    return await bundlerClient.sendUserOperationDirectly(userOp, chainId, signerPrivateKey);
   }
 
   /**
@@ -276,13 +340,9 @@ export class TransactionRelayer {
    * 对于未部署的账户，返回 0
    */
   private async getAccountNonce(accountAddress: Address, chainId: number): Promise<bigint> {
-    const chainConfig = getChainConfigByChainId(chainId);
-    if (!chainConfig || !chainConfig.entryPointAddress) {
-      throw new Error(`EntryPoint address not configured for chain: ${chainId}`);
-    }
+    const chainConfig = requireChainConfig(chainId, ['entryPointAddress', 'rpcUrl']);
 
     // 检查账户是否已部署
-    const { accountManager } = await import('./AccountManager');
     const accountInfo = await accountManager.getAccountByAddress(accountAddress, chainId);
     
     if (!accountInfo || accountInfo.status !== 'deployed') {
@@ -331,13 +391,13 @@ export class TransactionRelayer {
       sender: accountAddress,
       nonce: userOp.nonce || BigInt(0),
       initCode: '0x',
-      callData: callData,
+      callData: callData as Hex,
       callGasLimit: BigInt(0),
       verificationGasLimit: BigInt(0),
       preVerificationGas: BigInt(0),
       maxFeePerGas: userOp.maxFeePerGas || BigInt(0),
       maxPriorityFeePerGas: userOp.maxPriorityFeePerGas || BigInt(0),
-      paymasterAndData: userOp.paymasterAndData || '0x',
+      paymasterAndData: (userOp.paymasterAndData || '0x') as Hex,
       signature: '0x',
     };
 
@@ -355,10 +415,7 @@ export class TransactionRelayer {
       console.warn('Gas estimation failed, using fallback estimation:', error);
       
       // 降级方案：智能估算
-      const chainConfig = getChainConfigByChainId(chainId);
-      if (!chainConfig) {
-        throw new Error(`Chain config not found for chainId: ${chainId}`);
-      }
+      const chainConfig = requireChainConfig(chainId);
 
       // 使用链配置的默认值（如果配置了）
       if (chainConfig.defaultGasLimits) {
@@ -419,4 +476,3 @@ export class TransactionRelayer {
 }
 
 export const transactionRelayer = new TransactionRelayer();
-

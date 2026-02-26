@@ -11,16 +11,21 @@ smart-services/
 ├── contracts/          # 智能合约源码
 │   └── src/           # Kernel 合约源码（从 kernel-dev 复制）
 ├── scripts/           # 部署和测试脚本
-│   ├── Deploy.s.sol   # 主部署脚本
-│   ├── DeployKernel.s.sol  # Kernel 部署脚本
-│   └── DeployECDSA.s.sol   # ECDSA 验证器部署脚本
+│   ├── Deploy.s.sol   # 主部署脚本（CREATE2_PROXY）
+│   ├── DeployAllChains.s.sol  # 多链批量部署脚本（推荐）
+│   ├── DeployWithCREATE2.s.sol  # CREATE2_PROXY 部署脚本
+│   └── DeployApplicationRegistry.s.sol  # ApplicationRegistry 部署脚本
+├── docs/              # 文档目录
+│   ├── 部署指南.md      # 部署指南文档
+│   ├── 多链部署地址记录.md  # 多链部署地址记录
+│   └── ...            # 其他技术文档
 ├── artifacts/         # 编译产物（可选）
 ├── types/             # TypeScript 类型定义（可选）
 ├── package.json       # 合约项目依赖
 ├── hardhat.config.ts  # Hardhat 配置
 ├── foundry.toml       # Foundry 配置
 ├── remappings.txt     # Foundry 重映射配置
-└── DEPLOY.md          # 部署指南文档
+└── README.md          # 本文件
 ```
 
 ## 重要说明
@@ -61,7 +66,7 @@ npx typechain --target ethers-v6 --out-dir types './artifacts/**/*.json'
 
 #### 3. 部署合约
 
-详细部署说明请参考 [DEPLOY.md](./DEPLOY.md)
+详细部署说明请参考 [部署指南](./docs/部署指南.md)
 
 ```bash
 # 使用 Foundry 部署（推荐）
@@ -93,11 +98,13 @@ npx hardhat run scripts/deploy.ts --network mantle_sepolia
 
 ## 部署文档
 
-- [部署指南](./DEPLOY.md) - 详细的智能合约部署说明
+- [部署指南](./docs/部署指南.md) - 详细的智能合约部署说明
+- [多链部署地址记录](./docs/多链部署地址记录.md) - 各链部署地址记录
+- [文档索引](./docs/文档索引.md) - 完整文档索引
 
 ## 相关文档
 
-- [Vercel部署指南](../deploy/Vercel部署指南.md)
+- [Vercel部署指南](../../doc_tmp/h5_deploy_docs_archive/Vercel部署指南.md)
 - [系统概述](../docs/系统概述.md)
 - [开发指南](../docs/开发指南.md)
 

@@ -124,14 +124,6 @@ export class DelayedTransactionPlugin {
     // 生成交易ID（使用交易哈希）
     const transactionId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // 构造交易数据（用于延迟执行）
-    const { encodeExecuteCallData } = await import('@/utils/kernel');
-    const executeCallData = encodeExecuteCallData(
-      config.target,
-      config.value,
-      config.data
-    );
-
     // 计算交易哈希（用于在插件合约中标识）
     const { keccak256, encodeAbiParameters, parseAbiParameters } = await import('viem');
     const transactionHash = keccak256(
@@ -378,4 +370,3 @@ export class DelayedTransactionPlugin {
     return txHash;
   }
 }
-

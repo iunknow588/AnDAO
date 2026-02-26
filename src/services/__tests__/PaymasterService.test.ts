@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PaymasterService } from '../PaymasterService';
 import { getChainConfigByChainId } from '@/config/chains';
 import { UserOperation } from '@/types';
-import type { Address } from 'viem';
 
 // Mock chain config
 vi.mock('@/config/chains', () => ({
@@ -80,7 +79,7 @@ describe('PaymasterService', () => {
         name: 'Mantle',
         rpcUrl: 'https://rpc.mantle.xyz',
         paymasterAddress: undefined,
-      } as any);
+      } as NonNullable<ReturnType<typeof getChainConfigByChainId>>);
 
       const paymasterData = await paymasterService.buildPaymasterData(userOp, 5000);
 
@@ -111,7 +110,7 @@ describe('PaymasterService', () => {
         name: 'Mantle',
         rpcUrl: 'https://rpc.mantle.xyz',
         paymasterAddress: undefined,
-      } as any);
+      } as NonNullable<ReturnType<typeof getChainConfigByChainId>>);
 
       const address = paymasterService.getPaymasterAddress(5000);
 
@@ -119,4 +118,3 @@ describe('PaymasterService', () => {
     });
   });
 });
-

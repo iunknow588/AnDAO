@@ -5,7 +5,6 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AccountManager } from '@/services/AccountManager';
 import { accountManager } from '@/services/AccountManager';
 import { storageAdapter } from '@/adapters/StorageAdapter';
 
@@ -45,7 +44,7 @@ describe('账户创建集成测试', () => {
   });
 
   it('应该完成账户创建流程', async () => {
-    const owner = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd' as any;
+    const owner = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd' as `0x${string}`;
     const chainId = 5000;
     const signerPrivateKey = '0x1234567890123456789012345678901234567890123456789012345678901234' as `0x${string}`;
 
@@ -67,7 +66,7 @@ describe('账户创建集成测试', () => {
   });
 
   it('应该能够查询已创建的账户', async () => {
-    const owner = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd' as any;
+    const owner = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd' as `0x${string}`;
     const chainId = 5000;
     const signerPrivateKey = '0x1234567890123456789012345678901234567890123456789012345678901234' as `0x${string}`;
 
@@ -80,4 +79,3 @@ describe('账户创建集成测试', () => {
     expect(queriedAddress).toBe(createdAddress);
   });
 });
-
