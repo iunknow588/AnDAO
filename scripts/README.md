@@ -20,15 +20,11 @@
 
 目录：`h5/scripts/management`
 
-- `upload_to_github.sh`
-- `check-deployment.sh`
-- `deploy-github-and-vercel.sh`
-- `pwa-verification.ts`
-- `security-audit.ts`
-- `testnet-verification.ts`
-- `start-local-dev.sh`
-- `test-local-dev.sh`
-- `bridge-connectivity-check.ts`
+- `deploy/`：发布与部署脚本
+- `verification/`：连通性与独立性校验脚本
+- `security/`：安全审计脚本
+- `dev/`：本地开发辅助脚本
+- `lib/`：管理脚本共享模块
 
 对应命令：
 
@@ -36,17 +32,21 @@
 - `npm run security:check`
 - `npm run testnet:verify`
 - `npm run deploy:github`
+- `npm run deploy:vercel`
 - `npm run deploy:check`
 - `npm run deploy:all`
+- `npm run deploy:all:ci`
 - `npm run dev:local:start`
 - `npm run dev:local:test`
 - `npm run bridge:check`
 
 常用执行方式：
 
-- `bash ./scripts/management/upload_to_github.sh "chore: update h5"`
-- `bash ./scripts/management/check-deployment.sh`
-- `bash ./scripts/management/deploy-github-and-vercel.sh "chore: deploy h5"`
+- `bash ./scripts/management/deploy/upload-to-github.sh "chore: update h5"`
+- `bash ./scripts/management/deploy/deploy-vercel.sh`
+- `bash ./scripts/management/deploy/check-deployment.sh`
+- `bash ./scripts/management/deploy/deploy-github-and-vercel.sh "chore: deploy h5"`
+- `bash ./scripts/management/deploy/deploy-github-and-vercel.sh --non-interactive --mode git "chore: deploy h5"`
 
 ## 🧪 Sponsor 索引 Mock 联调
 

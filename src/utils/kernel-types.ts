@@ -21,11 +21,7 @@ async function tryImportKernelABI(): Promise<{
   entryPointABI: readonly unknown[] | null;
 }> {
   try {
-    // 尝试从 kernel-dev 导入
-    // 注意：需要先编译 kernel-dev 并生成 artifacts
-    // const KernelFactoryArtifact = await import('../../../kernel-dev/artifacts/contracts/factory/KernelFactory.sol/KernelFactory.json');
-    // const KernelArtifact = await import('../../../kernel-dev/artifacts/contracts/Kernel.sol/Kernel.json');
-    // const EntryPointArtifact = await import('../../../kernel-dev/artifacts/contracts/interfaces/IEntryPoint.sol/IEntryPoint.json');
+    // 预留：如后续需要，可在本项目内接入本地 artifacts 文件。
     
     // 当前返回 null，使用降级方案
     return {

@@ -9,7 +9,7 @@
 ```
 smart-services/
 ├── contracts/          # 智能合约源码
-│   └── src/           # Kernel 合约源码（从 kernel-dev 复制）
+│   └── src/           # Kernel 合约源码（本地维护）
 ├── scripts/           # 部署和测试脚本
 │   ├── Deploy.s.sol   # 主部署脚本（CREATE2_PROXY）
 │   ├── DeployAllChains.s.sol  # 多链批量部署脚本（推荐）
@@ -38,9 +38,9 @@ smart-services/
 - Vercel 部署仅包含钱包 UI 部分（`h5/` 目录）
 - 智能合约代码独立管理，不包含在前端部署中
 
-### 合约代码来源
+### 合约代码组成
 
-智能合约代码来自 `../kernel-dev/` 目录：
+本目录包含钱包项目所需的核心合约代码：
 
 - **Kernel 合约**: ERC-4337 兼容的智能合约账户框架
 - **Factory 合约**: 账户创建工厂合约
@@ -88,13 +88,9 @@ npx hardhat run scripts/deploy.ts --network mantle_sepolia
 
 如果需要更新合约代码：
 
-1. 更新 `../kernel-dev/` 目录中的合约源码
-2. 复制到本目录：
-   ```bash
-   cp -r ../kernel-dev/src smart-services/contracts/src
-   ```
-3. 重新编译和生成类型
-4. 更新前端项目中的 ABI（`src/utils/kernel-types.ts`）
+1. 在 `smart-services/contracts/src` 中直接修改
+2. 重新编译并生成类型
+3. 更新前端项目中的 ABI（`src/utils/kernel-types.ts`）
 
 ## 部署文档
 
@@ -102,12 +98,6 @@ npx hardhat run scripts/deploy.ts --network mantle_sepolia
 - [多链部署地址记录](./docs/多链部署地址记录.md) - 各链部署地址记录
 - [文档索引](./docs/文档索引.md) - 完整文档索引
 
-## 相关文档
+## 相关说明
 
-- [Vercel部署指南](../../doc_tmp/h5_deploy_docs_archive/Vercel部署指南.md)
-- [系统概述](../docs/系统概述.md)
-- [开发指南](../docs/开发指南.md)
-
----
-
-**注意**: 本目录仅用于开发和维护智能合约代码，不包含在 Vercel 部署中。
+本目录是钱包项目的一部分，用于智能合约开发、编译与部署。

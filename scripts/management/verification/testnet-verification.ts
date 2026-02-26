@@ -5,12 +5,12 @@
  * 包括：账户创建、交易发送、社交恢复、插件系统等
  */
 
-import { accountManager } from '../src/services/AccountManager';
-import { transactionRelayer } from '../src/services/TransactionRelayer';
-import { guardianService } from '../src/services/GuardianService';
-import { pluginService } from '../src/services/PluginService';
-import { bundlerClient } from '../src/services/BundlerClient';
-import { getChainConfigByChainId } from '../src/config/chains';
+import { accountManager } from '../../../src/services/AccountManager';
+import { transactionRelayer } from '../../../src/services/TransactionRelayer';
+import { guardianService } from '../../../src/services/GuardianService';
+import { pluginService } from '../../../src/services/PluginService';
+import { bundlerClient } from '../../../src/services/BundlerClient';
+import { getChainConfigByChainId } from '../../../src/config/chains';
 import type { Address, Hex } from 'viem';
 import { createPublicClient, http } from 'viem';
 
@@ -390,4 +390,3 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       process.exit(1);
     });
 }
-

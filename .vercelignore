@@ -1,54 +1,13 @@
-# 忽略智能合约代码目录（合约代码已独立到 smart-services 目录）
-../kernel-dev/
-kernel-dev/
-smart-services/
-
-# 忽略开发相关文件
+# Vercel upload ignore list for standalone h5 app
 node_modules/
 .vite/
 dist/
 coverage/
 .nyc_output/
-
-# 忽略测试文件（可选，如果不需要在 Vercel 上运行测试）
-**/__tests__/
-**/*.test.ts
-**/*.test.tsx
-**/*.spec.ts
-**/*.spec.tsx
-test/
-tests/
-
-# 忽略文档目录（可选）
-docs/
-*.md
-!README.md
-
-# 忽略配置文件
+.git/
 .env.local
 .env.*.local
 .vscode/
 .idea/
 *.log
 .DS_Store
-
-# 忽略 Git 相关
-.git/
-.gitignore
-.gitattributes
-
-# 忽略构建工具配置（Vercel 会自动处理）
-.eslintrc*
-.prettierrc*
-tsconfig*.json
-vitest.config.ts
-
-# 忽略脚本目录（可选）
-scripts/
-
-# 忽略其他项目目录
-../apps/
-../packages/
-../docker/
-../etc/
-../logs/

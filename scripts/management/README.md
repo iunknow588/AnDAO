@@ -1,13 +1,9 @@
 # Management Scripts
 
-管理运维脚本（部署、验证、审计、本地环境）：
+管理运维脚本按功能分类如下：
 
-1. `upload_to_github.sh`
-2. `check-deployment.sh`
-3. `deploy-github-and-vercel.sh`
-4. `pwa-verification.ts`
-5. `security-audit.ts`
-6. `testnet-verification.ts`
-7. `start-local-dev.sh`
-8. `test-local-dev.sh`
-9. `bridge-connectivity-check.ts`
+1. `deploy/`：发布与部署。
+2. `verification/`：独立性、PWA、测试网、连通性验证。
+3. `security/`：安全审计。
+4. `dev/`：本地开发辅助。
+5. `lib/`：共享脚本模块（如项目根路径解析）。

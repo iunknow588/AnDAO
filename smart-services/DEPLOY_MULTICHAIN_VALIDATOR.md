@@ -107,7 +107,7 @@ MultiChainValidator: 0x...（部署地址）
 
 ### 2. 更新 .env.local
 
-编辑 `/home/lc/luckee_dao/AnDaoWallet/h5/.env.local`，更新对应链的地址：
+编辑 `h5/.env.local`（或当前项目根目录的 `.env.local`），更新对应链的地址：
 
 ```bash
 # Mantle Sepolia Testnet

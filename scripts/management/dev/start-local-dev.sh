@@ -1,6 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 # AnDaoWallet H5 - 本地开发服务器启动脚本
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/project-root.sh"
+PROJECT_ROOT="$(resolve_h5_project_root "$SCRIPT_DIR" 3)"
+cd "$PROJECT_ROOT"
+
 echo "=== AnDaoWallet H5 - 本地开发服务器 ==="
 echo ""
 

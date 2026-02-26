@@ -27,8 +27,8 @@ if (typeof process !== 'undefined' && !process.env.VITE_MANTLE_RPC_URL) {
   (globalThis as any).import = { meta: { env: {} } };
 }
 
-import { TestAccountGenerator } from '../src/utils/TestAccountGenerator';
-import type { TestAccountSet } from '../src/utils/TestAccountGenerator';
+import { TestAccountGenerator } from '../../src/utils/TestAccountGenerator';
+import type { TestAccountSet } from '../../src/utils/TestAccountGenerator';
 
 // 创建一个不依赖 AccountManager 的实例（仅用于 EOA 和助记词生成）
 const generator = new TestAccountGenerator();
@@ -125,7 +125,7 @@ async function main(): Promise<void> {
       case 'eoa': {
         printSeparator('生成 EOA 账户');
         for (let i = 0; i < Math.min(count, 10); i++) {
-          const eoa = testAccountGenerator.generateEOA();
+          const eoa = generator.generateEOA();
           printAccount(eoa, i);
         }
         break;
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
       case 'mnemonic': {
         printSeparator('生成助记词账户');
         for (let i = 0; i < Math.min(count, 5); i++) {
-          const account = testAccountGenerator.generateMnemonicAccount();
+          const account = generator.generateMnemonicAccount();
           printAccount(account, i);
           console.log('');
         }
