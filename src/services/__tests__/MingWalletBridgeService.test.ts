@@ -195,6 +195,75 @@ describe('MingWalletBridgeService', () => {
     expect(transactionRelayer.sendTransaction).toHaveBeenCalledTimes(1);
   });
 
+  it('passes sponsorPolicyContext to transaction relayer on evm mint', async () => {
+    await service!.init();
+
+    const response = await sendRequest({
+      type: 'MING_WALLET_MINT_NFT_REQUEST',
+      messageId: 'msg_mint_sponsor_ctx_001',
+      payload: {
+        ...BASE_PAYLOAD,
+        sponsorPolicyContext: {
+          sponsored: true,
+          sponsorId: 'sponsor-0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1',
+          ownerAddress: TEST_ACCOUNT.owner,
+          eoaAddress: null,
+        },
+      },
+    });
+
+    expect(response.payload.success).toBe(true);
+    expect(transactionRelayer.sendTransaction).toHaveBeenCalledWith(
+      TEST_ACCOUNT.address,
+      11155111,
+      BASE_PAYLOAD.contract.address,
+      expect.any(String),
+      TEST_PRIVATE_KEY,
+      BigInt(0),
+      {
+        sponsored: true,
+        sponsorId: 'sponsor-0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1',
+        ownerAddress: TEST_ACCOUNT.owner,
+        eoaAddress: null,
+      }
+    );
+  });
+
+  it('returns INVALID_PARAMS when sponsorPolicyContext ownerAddress is invalid', async () => {
+    await service!.init();
+
+    const response = await sendRequest({
+      type: 'MING_WALLET_MINT_NFT_REQUEST',
+      messageId: 'msg_mint_sponsor_ctx_invalid_owner_001',
+      payload: {
+        ...BASE_PAYLOAD,
+        sponsorPolicyContext: {
+          ownerAddress: 'invalid-owner-address',
+        },
+      },
+    });
+
+    expect(response.payload.success).toBe(false);
+    expect(response.payload.error.code).toBe('INVALID_PARAMS');
+    expect(transactionRelayer.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('returns WALLET_NOT_CONNECTED when session private key is unavailable', async () => {
+    await service!.init();
+    vi.mocked(keyManagerService.getPrivateKeyFromSession).mockRejectedValueOnce(
+      new Error('No active session')
+    );
+
+    const response = await sendRequest({
+      type: 'MING_WALLET_MINT_NFT_REQUEST',
+      messageId: 'msg_mint_no_session_001',
+      payload: BASE_PAYLOAD,
+    });
+
+    expect(response.payload.success).toBe(false);
+    expect(response.payload.error.code).toBe('WALLET_NOT_CONNECTED');
+  });
+
   it('handles scheduled task lifecycle: create -> get -> cancel', async () => {
     await service!.init();
 
@@ -282,6 +351,72 @@ describe('MingWalletBridgeService', () => {
     expect(response.payload.success).toBe(true);
     expect(response.payload.data.tokenId).toBe('12345');
     expect(transactionRelayer.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles SEND_TRANSACTION request on evm', async () => {
+    await service!.init();
+
+    const response = await sendRequest({
+      type: 'MING_WALLET_SEND_TRANSACTION_REQUEST',
+      messageId: 'msg_send_tx_001',
+      payload: {
+        protocolVersion: '1.0.0',
+        chainId: 11155111,
+        chainFamily: 'evm',
+        to: '0x3333333333333333333333333333333333333333',
+        data: '0xabcdef',
+        value: '0',
+        gasPolicy: {
+          primary: 'sponsored',
+          fallback: 'self_pay',
+          sponsorIdOrInviteCode: 'sponsor-0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1',
+        },
+      },
+    });
+
+    expect(response.type).toBe('MING_WALLET_SEND_TRANSACTION_RESPONSE');
+    expect(response.payload.success).toBe(true);
+    expect(response.payload.data.txHash).toBe(
+      '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    );
+    expect(response.payload.data.status).toBe('confirmed');
+    expect(response.payload.data.effectiveGasPolicy).toBe('sponsored');
+    expect(transactionRelayer.sendTransaction).toHaveBeenCalledWith(
+      TEST_ACCOUNT.address,
+      11155111,
+      '0x3333333333333333333333333333333333333333',
+      '0xabcdef',
+      TEST_PRIVATE_KEY,
+      BigInt(0),
+      expect.objectContaining({
+        sponsored: true,
+        sponsorId: 'sponsor-0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1',
+      })
+    );
+  });
+
+  it('returns CHAIN_NOT_SUPPORTED for SEND_TRANSACTION on solana', async () => {
+    await service!.init();
+
+    const response = await sendRequest({
+      type: 'MING_WALLET_SEND_TRANSACTION_REQUEST',
+      messageId: 'msg_send_tx_sol_001',
+      payload: {
+        protocolVersion: '1.0.0',
+        chainId: 0,
+        chainFamily: 'solana',
+        network: 'solana-devnet',
+        to: '8J8W1ahh6Y1cM1k8oYyU7F2jmYb5x1p6DYk7tV4hyU2S',
+        data: '0x',
+        gasPolicy: {
+          primary: 'self_pay',
+        },
+      },
+    });
+
+    expect(response.payload.success).toBe(false);
+    expect(response.payload.error.code).toBe('CHAIN_NOT_SUPPORTED');
+    expect(transactionRelayer.sendTransaction).not.toHaveBeenCalled();
   });
 
   it('handles GET_ACTIVE_ACCOUNT request on evm', async () => {

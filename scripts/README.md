@@ -6,15 +6,24 @@
 
 目录：`h5/scripts/functional`
 
-- `generate-test-accounts.ts`
-- `generate-test-accounts-simple.ts`
 - `mock-application-indexer.ts`
+- `generate-test-accounts.ts`（已迁移）
+- `generate-test-accounts-simple.ts`（已迁移）
+- `generate-avalanche-test-accounts.ts`（已迁移）
+- `avalanche-faucet-assistant.ts`（已迁移）
+- `mock-application-indexer.ts`（保留）
 
 对应命令：
 
-- `npm run test:accounts`
-- `npm run test:accounts:simple`
-- `npm run mock:indexer`
+- `npm run test:accounts`（已移除）
+- `npm run test:accounts:simple`（已移除）
+- `npm run test:accounts:avalanche`（已移除）
+- `npm run test:accounts:avalanche:faucet`（已移除）
+- `npm run mock:indexer`（保留）
+
+说明：
+- 测试账号与领币脚本已迁移至 `/home/lc/luckee_dao/works-docs/道安钱包项目/测试账号`
+- 当前 `h5` 仅保留业务联调脚本 `mock:indexer`
 
 ## 2) 管理性脚本（management）
 

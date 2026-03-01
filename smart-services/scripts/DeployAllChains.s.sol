@@ -14,6 +14,8 @@ import "src/validator/MultiChainValidator.sol";
  * @dev 此脚本用于批量部署合约到多个链
  * 
  * @dev 支持的链：
+ * - Avalanche Fuji Testnet (Chain ID: 43113)
+ * - Avalanche Mainnet (Chain ID: 43114)
  * - Mantle Sepolia Testnet (Chain ID: 5003)
  * - Mantle Mainnet (Chain ID: 5000)
  * - Injective Testnet (Chain ID: 1439) - EVM 兼容
@@ -116,6 +118,10 @@ contract DeployAllChains is Script {
      * @return EntryPoint 合约地址
      */
     function getEntryPointForChain(uint256 chainId) internal pure returns (address) {
+        // Avalanche 主网和 Fuji 测试网使用 v0.6.0
+        if (chainId == 43114 || chainId == 43113) {
+            return ENTRYPOINT_V0_6;
+        }
         // Mantle 主网和测试网使用 v0.6.0
         if (chainId == 5000 || chainId == 5003) {
             return ENTRYPOINT_V0_6;

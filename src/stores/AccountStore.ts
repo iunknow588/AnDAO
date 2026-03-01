@@ -15,7 +15,7 @@
 import { makeAutoObservable } from 'mobx';
 import { AccountInfo, SupportedChain } from '@/types';
 import { accountManager } from '@/services/AccountManager';
-import { DEFAULT_CHAIN, getChainConfig, getSupportedChainByChainId, MANTLE_TESTNET_CHAIN } from '@/config/chains';
+import { AVALANCHE_FUJI_CHAIN, DEFAULT_CHAIN, getChainConfig, getSupportedChainByChainId } from '@/config/chains';
 
 /**
  * 账户 Store 类
@@ -33,7 +33,7 @@ export class AccountStore {
   currentChain: SupportedChain = DEFAULT_CHAIN;
   
   /** 当前选中的链 ID（用于区分主网和测试网） */
-  currentChainId: number = MANTLE_TESTNET_CHAIN.chainId; // 默认使用测试网（开发环境）
+  currentChainId: number = AVALANCHE_FUJI_CHAIN.chainId; // 默认使用 Avalanche Fuji 测试网
   
   /** 是否正在加载 */
   isLoading = false;

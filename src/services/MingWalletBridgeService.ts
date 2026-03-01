@@ -5,6 +5,7 @@ import { getChainConfigByChainId } from '@/config/chains';
 import { accountStore } from '@/stores';
 import { keyManagerService } from '@/services/KeyManagerService';
 import { transactionRelayer } from '@/services/TransactionRelayer';
+import type { SponsorPolicyContext } from '@/services/TransactionRelayer';
 import { StorageKey } from '@/types';
 import { rpcClientManager } from '@/utils/RpcClientManager';
 import type {
@@ -12,12 +13,15 @@ import type {
   MingChainExecutionResult,
   MingChainFamily,
   MingCreateScheduledTaskRequestPayload,
+  MingGasPolicy,
   MingGetActiveAccountRequestPayload,
   MingGetScheduledTaskRequestPayload,
   MingGetScheduledTasksByWalletRequestPayload,
   MingMintNFTRequestPayload,
   MingReleaseConnectionRequestPayload,
   MingScheduledTask,
+  MingSendTransactionRequestPayload,
+  MingSponsorPolicyContext,
   MingWalletErrorPayload,
   MingWalletResponseEnvelope,
   MingWalletResponsePayload,
@@ -52,6 +56,7 @@ const MESSAGE_TYPE = {
   CANCEL_SCHEDULED_TASK_REQUEST: 'MING_WALLET_CANCEL_SCHEDULED_TASK_REQUEST',
   RELEASE_CONNECTION_NFT_REQUEST: 'MING_WALLET_RELEASE_CONNECTION_NFT_REQUEST',
   GET_ACTIVE_ACCOUNT_REQUEST: 'MING_WALLET_GET_ACTIVE_ACCOUNT_REQUEST',
+  SEND_TRANSACTION_REQUEST: 'MING_WALLET_SEND_TRANSACTION_REQUEST',
 } as const;
 
 type SupportedMingRequestType =
@@ -247,6 +252,10 @@ export class MingWalletBridgeService {
       case MESSAGE_TYPE.GET_ACTIVE_ACCOUNT_REQUEST:
         return this.handleGetActiveAccount(
           this.asPayload<MingGetActiveAccountRequestPayload>(payload)
+        );
+      case MESSAGE_TYPE.SEND_TRANSACTION_REQUEST:
+        return this.handleSendTransaction(
+          this.asPayload<MingSendTransactionRequestPayload>(payload)
         );
       default:
         throw new MingProtocolError(
@@ -499,6 +508,70 @@ export class MingWalletBridgeService {
     };
   }
 
+  private async handleSendTransaction(
+    payload: MingSendTransactionRequestPayload
+  ): Promise<Record<string, unknown>> {
+    this.assertProtocolVersion(payload.protocolVersion);
+
+    if (!payload.to) {
+      throw new MingProtocolError('MISSING_REQUIRED_FIELD', 'to is required');
+    }
+    if (!payload.data || !/^0x[a-fA-F0-9]*$/.test(payload.data)) {
+      throw new MingProtocolError('INVALID_PARAMS', 'data must be a hex string');
+    }
+    if (
+      payload.value !== undefined &&
+      payload.value !== null &&
+      !/^\d+$/.test(payload.value)
+    ) {
+      throw new MingProtocolError(
+        'INVALID_PARAMS',
+        'value must be a decimal numeric string'
+      );
+    }
+
+    const chainFamily =
+      payload.chainFamily === 'solana' ||
+      (!!payload.network && payload.network.toLowerCase().includes('solana'))
+        ? 'solana'
+        : 'evm';
+    if (chainFamily === 'solana') {
+      throw new MingProtocolError(
+        'CHAIN_NOT_SUPPORTED',
+        'MING_WALLET_SEND_TRANSACTION_REQUEST currently supports chainFamily=evm only'
+      );
+    }
+
+    if (!Number.isInteger(payload.chainId) || payload.chainId <= 0) {
+      throw new MingProtocolError(
+        'INVALID_PARAMS',
+        'chainId must be a positive integer for EVM'
+      );
+    }
+    this.assertContractAddress(payload.to, 'evm');
+    this.validateGasPolicy(payload.gasPolicy);
+
+    const context = await this.getEvmExecutionContext(payload.chainId);
+    const txHash = await transactionRelayer.sendTransaction(
+      context.accountAddress,
+      payload.chainId,
+      payload.to as Address,
+      payload.data,
+      context.ownerPrivateKey,
+      BigInt(payload.value || '0'),
+      this.resolveSponsorContextFromPayload(payload)
+    );
+
+    const receiptMeta = await this.tryGetReceiptMeta(payload.chainId, txHash);
+    return {
+      txHash,
+      status: receiptMeta ? 'confirmed' : 'submitted',
+      effectiveGasPolicy: payload.gasPolicy.primary,
+      blockNumber: receiptMeta?.blockNumber,
+      timestamp: receiptMeta?.timestamp,
+    };
+  }
+
   private validateMintPayload(
     payload: MingMintNFTRequestPayload,
     mode: 'mint' | 'scheduled'
@@ -669,7 +742,9 @@ export class MingWalletBridgeService {
       chainId,
       payload.contract.address as Address,
       callData,
-      context.ownerPrivateKey
+      context.ownerPrivateKey,
+      BigInt(0),
+      this.resolveSponsorPolicyContext(payload.sponsorPolicyContext)
     );
 
     const receiptMeta = await this.tryGetReceiptMeta(chainId, txHash);
@@ -718,7 +793,9 @@ export class MingWalletBridgeService {
       chainId,
       payload.contract.address as Address,
       callData,
-      context.ownerPrivateKey
+      context.ownerPrivateKey,
+      BigInt(0),
+      this.resolveSponsorPolicyContext(payload.sponsorPolicyContext)
     );
 
     const receiptMeta = await this.tryGetReceiptMeta(chainId, txHash);
@@ -870,9 +947,17 @@ export class MingWalletBridgeService {
       );
     }
 
-    const ownerPrivateKey = await keyManagerService.getPrivateKeyFromSession(
-      account.owner as Address
-    );
+    let ownerPrivateKey: `0x${string}` | null = null;
+    try {
+      ownerPrivateKey = await keyManagerService.getPrivateKeyFromSession(
+        account.owner as Address
+      );
+    } catch (_error) {
+      throw new MingProtocolError(
+        'WALLET_NOT_CONNECTED',
+        'Private key is not available in session. Please unlock wallet first.'
+      );
+    }
     if (!ownerPrivateKey) {
       throw new MingProtocolError(
         'WALLET_NOT_CONNECTED',
@@ -882,7 +967,7 @@ export class MingWalletBridgeService {
 
     return {
       accountAddress: account.address as Address,
-      ownerPrivateKey: ownerPrivateKey as `0x${string}`,
+      ownerPrivateKey,
       walletAddress: account.address,
     };
   }
@@ -1045,6 +1130,97 @@ export class MingWalletBridgeService {
       throw new MingProtocolError(
         'INVALID_PARAMS',
         'params.to must be a valid Solana address'
+      );
+    }
+  }
+
+  private resolveSponsorPolicyContext(
+    context?: MingSponsorPolicyContext
+  ): SponsorPolicyContext | undefined {
+    if (!context || !isObject(context)) {
+      return undefined;
+    }
+
+    const next: SponsorPolicyContext = {};
+    if (typeof context.sponsored === 'boolean') {
+      next.sponsored = context.sponsored;
+    }
+    if (typeof context.sponsorId === 'string' && context.sponsorId.trim()) {
+      next.sponsorId = context.sponsorId.trim();
+    }
+    if (typeof context.ownerAddress === 'string' && context.ownerAddress.trim()) {
+      const ownerAddress = context.ownerAddress.trim();
+      if (!isValidEvmAddress(ownerAddress)) {
+        throw new MingProtocolError(
+          'INVALID_PARAMS',
+          `invalid sponsorPolicyContext.ownerAddress: ${ownerAddress}`
+        );
+      }
+      next.ownerAddress = ownerAddress as Address;
+    }
+
+    if (context.eoaAddress === null) {
+      next.eoaAddress = null;
+    } else if (typeof context.eoaAddress === 'string' && context.eoaAddress.trim()) {
+      const eoaAddress = context.eoaAddress.trim();
+      if (!isValidEvmAddress(eoaAddress)) {
+        throw new MingProtocolError(
+          'INVALID_PARAMS',
+          `invalid sponsorPolicyContext.eoaAddress: ${eoaAddress}`
+        );
+      }
+      next.eoaAddress = eoaAddress as Address;
+    }
+
+    return Object.keys(next).length > 0 ? next : undefined;
+  }
+
+  private resolveSponsorContextFromPayload(
+    payload: MingSendTransactionRequestPayload
+  ): SponsorPolicyContext | undefined {
+    const base = this.resolveSponsorPolicyContext(payload.sponsorPolicyContext) || {};
+    if (payload.gasPolicy.primary === 'self_pay') {
+      base.sponsored = false;
+    }
+    if (payload.gasPolicy.primary === 'sponsored' && base.sponsored === undefined) {
+      base.sponsored = true;
+    }
+    if (!base.sponsorId && payload.gasPolicy.sponsorIdOrInviteCode) {
+      base.sponsorId = payload.gasPolicy.sponsorIdOrInviteCode;
+    }
+    return Object.keys(base).length > 0 ? base : undefined;
+  }
+
+  private validateGasPolicy(gasPolicy: MingGasPolicy): void {
+    if (!gasPolicy || !gasPolicy.primary) {
+      throw new MingProtocolError(
+        'MISSING_REQUIRED_FIELD',
+        'gasPolicy.primary is required'
+      );
+    }
+    if (gasPolicy.fallback && gasPolicy.fallback === gasPolicy.primary) {
+      throw new MingProtocolError(
+        'INVALID_PARAMS',
+        'gasPolicy.fallback must differ from gasPolicy.primary'
+      );
+    }
+    if (
+      gasPolicy.primary !== 'self_pay' &&
+      gasPolicy.primary !== 'sponsored'
+    ) {
+      throw new MingProtocolError(
+        'INVALID_PARAMS',
+        'gasPolicy.primary must be self_pay or sponsored'
+      );
+    }
+    if (
+      gasPolicy.fallback &&
+      gasPolicy.fallback !== 'self_pay' &&
+      gasPolicy.fallback !== 'sponsored'
+    ) {
+      throw new MingProtocolError(
+        'INVALID_PARAMS',
+        'gasPolicy.fallback must be self_pay or sponsored'
       );
     }
   }

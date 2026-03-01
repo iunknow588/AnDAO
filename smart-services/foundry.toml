@@ -5,7 +5,7 @@ out = "out"
 libs = ["lib"]
 bytecode_hash = "none"
 cbor_metadata = false
-via-ir = false
+via-ir = true
 optimizer = true
 optimizer_runs = 200
 evm_version = "prague"
@@ -19,6 +19,8 @@ mantle_sepolia = "https://rpc.sepolia.mantle.xyz"
 mantle_mainnet = "https://rpc.mantle.xyz"
 injective_testnet = "https://k8s.testnet.json-rpc.injective.network"
 injective_mainnet = "https://sentry.evm-rpc.injective.network"
+avalanche_mainnet = "https://api.avax.network/ext/bc/C/rpc"
+avalanche_fuji = "https://api.avax-test.network/ext/bc/C/rpc"
 
 # Etherscan configuration for contract verification
 [etherscan]

@@ -129,6 +129,10 @@ contract DeployWithCREATE2 is Script {
      * @notice 根据链 ID 获取 EntryPoint 地址
      */
     function getEntryPointForChain(uint256 chainId) internal pure returns (address) {
+        // Avalanche 主网和 Fuji 测试网使用 v0.6.0
+        if (chainId == 43114 || chainId == 43113) {
+            return ENTRYPOINT_V0_6;
+        }
         // Mantle 主网和测试网使用 v0.6.0
         if (chainId == 5000 || chainId == 5003) {
             return ENTRYPOINT_V0_6;

@@ -38,11 +38,13 @@ import {
   ChannelInfo,
   ChannelStats,
 } from '@/types/sponsor';
-import { ErrorHandler, ErrorCode } from '@/utils/errors';
+import { ErrorHandler, ErrorCode, WalletError } from '@/utils/errors';
 import { logger } from '@/utils/logger';
+import { AVALANCHE_CHAIN, AVALANCHE_FUJI_CHAIN } from '@/config/chains';
 
 const LOG_CONTEXT = 'SponsorService';
 export type SponsorApplicationsDataSource =
+  | 'chain-primary'
   | 'indexer'
   | 'indexer-with-fallback'
   | 'chain-fallback'
@@ -239,12 +241,18 @@ export class SponsorService {
    * ```
    */
   async createApplication(params: ApplicationParams): Promise<Application> {
+    let applicationId: string | null = null;
     try {
       // 1. 获取赞助商信息
       const sponsor = await this.getSponsorById(params.sponsorId);
       if (!sponsor) {
         throw new Error(`Sponsor not found: ${params.sponsorId}`);
       }
+      this.assertSponsorPolicyMatch(sponsor, {
+        ownerAddress: params.ownerAddress,
+        eoaAddress: params.eoaAddress,
+        targetContractAddress: params.targetContractAddress,
+      });
       
       // 2. 获取存储提供者
       // 如果赞助商指定了存储类型，使用赞助商的存储
@@ -264,6 +272,7 @@ export class SponsorService {
         sponsorId: params.sponsorId,
         chainId: params.chainId,
         inviteCode: params.inviteCode,
+        targetContractAddress: params.targetContractAddress,
         createdAt: Date.now(),
         details: params.details || {},
       };
@@ -272,7 +281,7 @@ export class SponsorService {
       const storageIdentifier = await storageProvider.add(applicationDetail);
       
       // 5. 生成申请ID
-      const applicationId = `app-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      applicationId = `app-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
       // 6. 创建申请记录
       const application: Application = {
@@ -286,41 +295,60 @@ export class SponsorService {
         status: 'pending',
         createdAt: Date.now(),
         inviteCode: params.inviteCode,
+        targetContractAddress: params.targetContractAddress,
         storageIdentifier,
         storageType: storageProvider.type,
+        details: params.details,
       };
       
       // 7. 保存到本地缓存
       this.applications.set(applicationId, application);
-      
-      // 8. 在链上注册索引（ApplicationRegistry合约）
-      // 注意：链上注册需要用户（申请者）的私钥来签名，而不是赞助商的私钥
-      // 这里暂时跳过链上注册，因为申请者可能还没有账户私钥（路径A场景）
-      // 实际应该由申请者在创建申请时提供私钥，或者由赞助商在审核时注册
-      // 
-      // 如果需要在创建申请时注册，可以这样调用：
-      // await applicationRegistryClient.registerApplication(
-      //   params.chainId,
-      //   applicationId,
-      //   params.accountAddress,
-      //   params.ownerAddress,
-      //   params.eoaAddress || null,
-      //   sponsor.address as Address,
-      //   storageIdentifier,
-      //   storageProvider.type,
-      //   ownerPrivateKey // 需要申请者的owner私钥
-      // );
-      
-      // 当前实现：链上注册延迟到审核通过时进行
-      logger.info('Application created locally, chain registration will be done during review', LOG_CONTEXT, {
-        applicationId,
-        sponsorId: params.sponsorId,
-      });
+
+      // 8. 创建阶段链上注册策略：
+      // - Avalanche 默认严格模式（可通过 env/参数覆盖）；
+      // - 严格模式失败时回滚本地缓存并抛错；
+      // - 非严格模式下写链失败只告警，状态仍可在审核阶段补写。
+      const strictOnChain = this.shouldStrictOnChain(params.chainId, params.strictOnChain);
+      const writerKey = await this.resolveApplicationWriterKey(application, sponsor, params.password);
+      if (writerKey) {
+        const existing = await applicationRegistryClient.getApplication(application.chainId, application.id);
+        if (!existing || !existing.applicationId) {
+          await applicationRegistryClient.registerApplication(
+            application.chainId,
+            application.id,
+            application.accountAddress,
+            application.ownerAddress,
+            application.eoaAddress || null,
+            sponsor.address,
+            application.targetContractAddress || null,
+            application.storageIdentifier || '',
+            application.storageType || StorageProviderType.IPFS,
+            writerKey
+          );
+        }
+      } else if (strictOnChain) {
+        throw new WalletError(
+          'STRICT_ONCHAIN_CREATE_REQUIRED: private key is required to register application on chain',
+          ErrorCode.VALIDATION_ERROR
+        );
+      }
+
+      if (!writerKey) {
+        logger.warn('Application created in cache-first mode (no signer key for create-time chain registration)', LOG_CONTEXT, {
+          applicationId,
+          chainId: params.chainId,
+          strictOnChain,
+          sponsorId: params.sponsorId,
+        });
+      }
       
       logger.info('Application created', LOG_CONTEXT, { applicationId, sponsorId: params.sponsorId });
       
       return application;
     } catch (error) {
+      if (applicationId) {
+        this.applications.delete(applicationId);
+      }
       ErrorHandler.handleError(error, ErrorCode.STORAGE_ERROR);
       throw error;
     }
@@ -454,38 +482,52 @@ export class SponsorService {
     chainId?: number
   ): Promise<SponsorApplicationsResult> {
     try {
-      // 1. 从本地缓存获取
       const sponsorAddressValue = this.extractSponsorAddress(sponsorId);
       const sponsorAddress = sponsorAddressValue?.toLowerCase();
-      const cachedApplications: Application[] = [];
-      for (const [, app] of this.applications.entries()) {
-        if (typeof chainId === 'number' && app.chainId !== chainId) {
-          continue;
-        }
+      const cachedApplications = this.collectCachedApplications(sponsorId, sponsorAddress, chainId);
+      const cachedById = new Map<string, Application>(cachedApplications.map((app) => [app.id, app]));
 
-        const appSponsorAddress = app.sponsorAddress?.toLowerCase();
-        const matchesById = app.sponsorId === sponsorId;
-        const matchesByAddress = Boolean(sponsorAddress && appSponsorAddress && appSponsorAddress === sponsorAddress);
-
-        if (matchesById || matchesByAddress) {
-          cachedApplications.push(app);
-        }
-      }
-
-      // 2. 优先尝试索引层按赞助商批量查询（可插拔），拿到时用于刷新状态
       let chainStatusMap = new Map<string, ApplicationStatus>();
+      let chainRecords: ApplicationRegistryRecord[] = [];
+      let usedChainPrimary = false;
       let usedIndexer = false;
-      if (typeof chainId === 'number' && sponsorAddressValue) {
-        const chainRecords = await applicationRegistryClient.listApplicationsBySponsor(chainId, sponsorAddressValue);
-        usedIndexer =
-          applicationRegistryClient.isSponsorApplicationsResolverConfigured() && chainRecords.length > 0;
-        chainStatusMap = this.buildChainStatusMap(chainRecords);
+      let usedChainFallback = false;
+
+      if (sponsorAddressValue) {
+        const prioritizedChainIds = this.resolveSponsorQueryChainIds(chainId, cachedApplications);
+
+        for (const queryChainId of prioritizedChainIds) {
+          const records = await applicationRegistryClient.listApplicationsBySponsorOnChain(
+            queryChainId,
+            sponsorAddressValue
+          );
+          if (records.length > 0) {
+            chainRecords = records;
+            usedChainPrimary = true;
+            break;
+          }
+
+          const indexedRecords = await applicationRegistryClient.listApplicationsBySponsor(
+            queryChainId,
+            sponsorAddressValue
+          );
+          if (indexedRecords.length > 0) {
+            chainRecords = indexedRecords;
+            usedIndexer = applicationRegistryClient.isSponsorApplicationsResolverConfigured();
+            break;
+          }
+        }
+      }
+      chainStatusMap = this.buildChainStatusMap(chainRecords);
+
+      for (const record of chainRecords) {
+        const merged = this.mergeApplicationFromChainRecord(record, cachedById.get(record.applicationId), sponsorId);
+        this.applications.set(merged.id, merged);
+        cachedById.set(merged.id, merged);
       }
 
-      // 3. 降级：逐条查询链上状态并刷新本地申请状态
-      let usedChainFallback = false;
       await Promise.all(
-        cachedApplications.map(async (app) => {
+        Array.from(cachedById.values()).map(async (app) => {
           let latestStatus = chainStatusMap.get(app.id);
           if (!latestStatus) {
             usedChainFallback = true;
@@ -501,18 +543,20 @@ export class SponsorService {
       logger.info('Loaded applications for sponsor', LOG_CONTEXT, {
         sponsorId,
         chainId,
-        count: cachedApplications.length,
+        count: cachedById.size,
       });
 
       // 按创建时间倒序排序
-      const applications = cachedApplications.sort((a, b) => {
+      const applications = Array.from(cachedById.values()).sort((a, b) => {
         const timeA = a.createdAt || 0;
         const timeB = b.createdAt || 0;
         return timeB - timeA;
       });
 
       const dataSource: SponsorApplicationsDataSource =
-        usedIndexer && usedChainFallback
+        usedChainPrimary
+          ? 'chain-primary'
+          : usedIndexer && usedChainFallback
           ? 'indexer-with-fallback'
           : usedIndexer
           ? 'indexer'
@@ -597,6 +641,24 @@ export class SponsorService {
           gasAccountPrivateKey
         );
 
+        if (params.rules.allowedContractAddresses && params.rules.allowedContractAddresses.length > 0) {
+          await applicationRegistryClient.setSponsorContractWhitelist(
+            params.chainId,
+            params.rules.allowedContractAddresses,
+            true,
+            gasAccountPrivateKey
+          );
+        }
+
+        if (params.rules.userWhitelist && params.rules.userWhitelist.length > 0) {
+          await applicationRegistryClient.setSponsorUserWhitelist(
+            params.chainId,
+            params.rules.userWhitelist,
+            true,
+            gasAccountPrivateKey
+          );
+        }
+
         logger.info('Sponsor registered on chain and cache', LOG_CONTEXT, {
           sponsorId,
           address: params.sponsorAddress,
@@ -641,7 +703,8 @@ export class SponsorService {
     sponsorId: string,
     applicationId: string,
     decision: 'approve' | 'reject',
-    reason?: string
+    reason?: string,
+    password?: string
   ): Promise<void> {
     try {
       // 1. 获取申请信息
@@ -653,6 +716,15 @@ export class SponsorService {
       if (application.sponsorId !== sponsorId) {
         throw new Error('Application does not belong to this sponsor');
       }
+      const sponsor = await this.getSponsorById(sponsorId);
+      if (!sponsor) {
+        throw new Error(`Sponsor not found: ${sponsorId}`);
+      }
+      this.assertSponsorPolicyMatch(sponsor, {
+        ownerAddress: application.ownerAddress,
+        eoaAddress: application.eoaAddress,
+        targetContractAddress: application.targetContractAddress,
+      });
       
       // 2. 获取存储提供者
       const storageProvider = application.storageType
@@ -662,8 +734,7 @@ export class SponsorService {
       // 3. 创建审核记录
       // 注意：reviewer应该是实际审核者的地址，这里使用赞助商地址作为审核者
       // 如果未来需要支持多审核者，可以从sponsor信息中获取审核者地址
-      const sponsor = await this.getSponsorById(sponsorId);
-      const reviewerAddress = sponsor?.address || application.sponsorId as Address;
+      const reviewerAddress = sponsor.address;
       
       const reviewRecord: ReviewRecord = {
         applicationId,
@@ -680,43 +751,63 @@ export class SponsorService {
       application.status = decision === 'approve' ? 'approved' : 'rejected';
       application.reviewedAt = Date.now();
       application.reviewStorageIdentifier = reviewStorageIdentifier;
+      application.reviewNote = reason;
       if (decision === 'reject') {
         application.rejectReason = reason;
       }
       
       this.applications.set(applicationId, application);
       
-      // 6. 更新链上状态
-      // 注意：链上状态更新需要密码来解锁赞助商的Gas账户私钥
-      // 此方法应该由UI调用，传入密码参数
-      // 当前实现中，链上更新在deployAccountForUser方法中进行
-      // 
-      // 如果需要在此处更新链上状态，可以添加password参数：
-      // async reviewApplication(
-      //   sponsorId: string,
-      //   applicationId: string,
-      //   decision: 'approve' | 'reject',
-      //   reason?: string,
-      //   password?: string // 赞助商密码
-      // )
-      // 
-      // 然后在这里调用：
-      // if (password) {
-      //   const gasAccountPrivateKey = await this.keyManagerService.getPrivateKey(
-      //     sponsor.address,
-      //     password
-      //   );
-      //   await applicationRegistryClient.updateApplicationStatus(...);
-      // }
-      
-      logger.info('Application reviewed locally', LOG_CONTEXT, {
+      // 6. 更新链上状态（可选）
+      // 在 Avalanche 优先联调中，UI 会要求输入密码并走此链路。
+      if (password) {
+        const gasAccountPrivateKey = await this.keyManagerService.getPrivateKey(
+          sponsor.address,
+          password
+        );
+        if (!gasAccountPrivateKey) {
+          throw new Error('Failed to get Gas account private key. Please check password.');
+        }
+
+        const existing = await applicationRegistryClient.getApplication(application.chainId, application.id);
+        if (!existing || !existing.applicationId) {
+          await applicationRegistryClient.registerApplication(
+            application.chainId,
+            application.id,
+            application.accountAddress,
+            application.ownerAddress,
+            application.eoaAddress || null,
+            sponsor.address,
+            application.targetContractAddress || null,
+            application.storageIdentifier || '',
+            application.storageType || StorageProviderType.IPFS,
+            gasAccountPrivateKey
+          );
+        }
+
+        await applicationRegistryClient.updateApplicationStatus(
+          application.chainId,
+          application.id,
+          decision === 'approve'
+            ? ContractApplicationStatus.APPROVED
+            : ContractApplicationStatus.REJECTED,
+          reviewStorageIdentifier || '',
+          gasAccountPrivateKey
+        );
+      } else {
+        logger.warn('Application reviewed in cache-only mode (missing password for on-chain update)', LOG_CONTEXT, {
+          applicationId,
+          decision,
+          sponsorId,
+        });
+      }
+
+      logger.info('Application reviewed', LOG_CONTEXT, {
         applicationId,
         decision,
         sponsorId,
-        note: 'Chain status update will be done during deployment (for approved) or can be done separately',
+        onChainUpdated: Boolean(password),
       });
-      
-      logger.info('Application reviewed', LOG_CONTEXT, { applicationId, decision, sponsorId });
       
       // 7. 如果批准，自动部署账户
       // 注意：deployAccountForUser需要密码参数，这里暂时不自动调用
@@ -772,6 +863,11 @@ export class SponsorService {
       if (!sponsor) {
         throw new Error(`Sponsor not found: ${sponsorId}`);
       }
+      this.assertSponsorPolicyMatch(sponsor, {
+        ownerAddress: application.ownerAddress,
+        eoaAddress: application.eoaAddress,
+        targetContractAddress: application.targetContractAddress,
+      });
       
       // 获取赞助商的Gas账户地址
       // 注意：Sponsor类型中没有gasAccountAddress字段，需要从SponsorAccount获取
@@ -931,6 +1027,102 @@ export class SponsorService {
       throw error;
     }
   }
+
+  async updateContractWhitelist(
+    sponsorId: string,
+    chainId: number,
+    addresses: Address[],
+    allowed: boolean,
+    password: string
+  ): Promise<Hash> {
+    const sponsor = await this.getSponsorById(sponsorId);
+    if (!sponsor) {
+      throw new Error(`Sponsor not found: ${sponsorId}`);
+    }
+
+    const gasAccountPrivateKey = await this.keyManagerService.getPrivateKey(sponsor.address, password);
+    if (!gasAccountPrivateKey) {
+      throw new Error('Failed to get Gas account private key. Please check password.');
+    }
+
+    const txHash = await applicationRegistryClient.setSponsorContractWhitelist(
+      chainId,
+      addresses,
+      allowed,
+      gasAccountPrivateKey
+    );
+
+    const current = sponsor.rules?.allowedContractAddresses || [];
+    const next = this.mergeWhitelist(current, addresses, allowed);
+    sponsor.rules = {
+      ...(sponsor.rules || {}),
+      allowedContractAddresses: next,
+    };
+    this.sponsors.set(sponsor.id, sponsor);
+
+    return txHash;
+  }
+
+  async updateUserWhitelist(
+    sponsorId: string,
+    chainId: number,
+    addresses: Address[],
+    allowed: boolean,
+    password: string
+  ): Promise<Hash> {
+    const sponsor = await this.getSponsorById(sponsorId);
+    if (!sponsor) {
+      throw new Error(`Sponsor not found: ${sponsorId}`);
+    }
+
+    const gasAccountPrivateKey = await this.keyManagerService.getPrivateKey(sponsor.address, password);
+    if (!gasAccountPrivateKey) {
+      throw new Error('Failed to get Gas account private key. Please check password.');
+    }
+
+    const txHash = await applicationRegistryClient.setSponsorUserWhitelist(
+      chainId,
+      addresses,
+      allowed,
+      gasAccountPrivateKey
+    );
+
+    const current = sponsor.rules?.userWhitelist || [];
+    const next = this.mergeWhitelist(current, addresses, allowed);
+    sponsor.rules = {
+      ...(sponsor.rules || {}),
+      userWhitelist: next,
+    };
+    this.sponsors.set(sponsor.id, sponsor);
+
+    return txHash;
+  }
+
+  async syncWhitelistFromChain(sponsorId: string, chainId: number): Promise<{
+    contractWhitelist: Address[];
+    userWhitelist: Address[];
+  }> {
+    const sponsor = await this.getSponsorById(sponsorId);
+    if (!sponsor) {
+      throw new Error(`Sponsor not found: ${sponsorId}`);
+    }
+    const sponsorAddress = this.extractSponsorAddress(sponsorId) || sponsor.address;
+    const [contractWhitelist, userWhitelist] = await Promise.all([
+      applicationRegistryClient.getSponsorContractWhitelist(chainId, sponsorAddress),
+      applicationRegistryClient.getSponsorUserWhitelist(chainId, sponsorAddress),
+    ]);
+
+    sponsor.rules = {
+      ...(sponsor.rules || {}),
+      allowedContractAddresses: contractWhitelist,
+      userWhitelist,
+    };
+    this.sponsors.set(sponsor.id, sponsor);
+    return {
+      contractWhitelist,
+      userWhitelist,
+    };
+  }
   
   /**
    * 获取赞助商存储配置
@@ -1026,17 +1218,154 @@ export class SponsorService {
     return null;
   }
 
+  private collectCachedApplications(
+    sponsorId: string,
+    sponsorAddress: string | undefined,
+    chainId?: number
+  ): Application[] {
+    const cachedApplications: Application[] = [];
+    for (const [, app] of this.applications.entries()) {
+      if (typeof chainId === 'number' && app.chainId !== chainId) {
+        continue;
+      }
+      const appSponsorAddress = app.sponsorAddress?.toLowerCase();
+      const matchesById = app.sponsorId === sponsorId;
+      const matchesByAddress = Boolean(
+        sponsorAddress && appSponsorAddress && appSponsorAddress === sponsorAddress
+      );
+      if (matchesById || matchesByAddress) {
+        cachedApplications.push(app);
+      }
+    }
+    return cachedApplications;
+  }
+
+  private resolveSponsorQueryChainIds(chainId: number | undefined, cachedApplications: Application[]): number[] {
+    const ordered = new Set<number>();
+    if (typeof chainId === 'number') {
+      ordered.add(chainId);
+    }
+    // Avalanche 优先（主网 + Fuji）
+    ordered.add(AVALANCHE_FUJI_CHAIN.chainId);
+    ordered.add(AVALANCHE_CHAIN.chainId);
+    for (const app of cachedApplications) {
+      ordered.add(app.chainId);
+    }
+    return Array.from(ordered.values());
+  }
+
+  private mergeApplicationFromChainRecord(
+    record: ApplicationRegistryRecord,
+    existing: Application | undefined,
+    fallbackSponsorId: string
+  ): Application {
+    const chainStatus = this.mapChainStatusToAppStatus(record.status);
+    const createdAtMs = Number(record.createdAt) * 1000;
+    const reviewedAtMs = Number(record.reviewedAt) * 1000;
+    const deployedAtMs = Number(record.deployedAt) * 1000;
+    const next: Application = {
+      id: record.applicationId,
+      accountAddress: record.accountAddress,
+      ownerAddress: record.ownerAddress,
+      eoaAddress: record.eoaAddress === '0x0000000000000000000000000000000000000000' ? undefined : record.eoaAddress,
+      sponsorId: existing?.sponsorId || fallbackSponsorId,
+      sponsorAddress: record.sponsorId,
+      chainId: Number(record.chainId),
+      status: chainStatus,
+      createdAt: existing?.createdAt || (Number.isFinite(createdAtMs) && createdAtMs > 0 ? createdAtMs : Date.now()),
+      reviewedAt:
+        Number.isFinite(reviewedAtMs) && reviewedAtMs > 0
+          ? reviewedAtMs
+          : existing?.reviewedAt,
+      deployedAt:
+        Number.isFinite(deployedAtMs) && deployedAtMs > 0
+          ? deployedAtMs
+          : existing?.deployedAt,
+      targetContractAddress:
+        record.targetContractAddress === '0x0000000000000000000000000000000000000000'
+          ? existing?.targetContractAddress
+          : record.targetContractAddress,
+      storageIdentifier: record.storageIdentifier || existing?.storageIdentifier,
+      storageType: existing?.storageType,
+      reviewStorageIdentifier: record.reviewStorageIdentifier || existing?.reviewStorageIdentifier,
+      details: existing?.details,
+      inviteCode: existing?.inviteCode,
+      reviewNote: existing?.reviewNote,
+      rejectReason: existing?.rejectReason,
+    };
+    return next;
+  }
+
+  private mapChainStatusToAppStatus(status: number): ApplicationStatus {
+    const statusMap: Record<number, ApplicationStatus> = {
+      0: 'pending',
+      1: 'approved',
+      2: 'rejected',
+      3: 'deployed',
+    };
+    return statusMap[status] || 'pending';
+  }
+
+  private shouldStrictOnChain(chainId: number, explicit?: boolean): boolean {
+    if (typeof explicit === 'boolean') {
+      return explicit;
+    }
+
+    const envValue = import.meta.env.VITE_SPONSOR_STRICT_ONCHAIN?.trim().toLowerCase();
+    if (envValue === 'true' || envValue === '1') {
+      return true;
+    }
+    if (envValue === 'false' || envValue === '0') {
+      return false;
+    }
+
+    return chainId === AVALANCHE_FUJI_CHAIN.chainId || chainId === AVALANCHE_CHAIN.chainId;
+  }
+
+  private async resolveApplicationWriterKey(
+    application: Application,
+    sponsor: Sponsor,
+    password?: string
+  ): Promise<`0x${string}` | null> {
+    const withPassword = (password || '').trim();
+    const candidates: Address[] = [
+      application.ownerAddress,
+      application.eoaAddress,
+      sponsor.address,
+    ].filter(Boolean) as Address[];
+
+    if (withPassword) {
+      for (const address of candidates) {
+        try {
+          const key = await this.keyManagerService.getPrivateKey(address, withPassword);
+          if (key) {
+            return key;
+          }
+        } catch {
+          // ignore and continue trying other candidates
+        }
+      }
+    }
+
+    for (const address of candidates) {
+      try {
+        const key = await this.keyManagerService.getPrivateKeyFromSession(address);
+        if (key) {
+          return key;
+        }
+      } catch {
+        // ignore and continue trying other candidates
+      }
+    }
+
+    return null;
+  }
+
   private async queryApplicationStatusFromChain(chainId: number, applicationId: string): Promise<ApplicationStatus> {
     try {
       const index = await applicationRegistryClient.getApplication(chainId, applicationId);
       if (index && index.status !== undefined) {
-        const statusMap: Record<number, ApplicationStatus> = {
-          0: 'pending',
-          1: 'approved',
-          2: 'rejected',
-          3: 'deployed',
-        };
-        return statusMap[index.status] || 'pending';
+        return this.mapChainStatusToAppStatus(index.status);
       }
       return 'pending';
     } catch (error) {
@@ -1063,15 +1392,75 @@ export class SponsorService {
   }
 
   private buildChainStatusMap(records: ApplicationRegistryRecord[]): Map<string, ApplicationStatus> {
-    const statusMap: Record<number, ApplicationStatus> = {
-      0: 'pending',
-      1: 'approved',
-      2: 'rejected',
-      3: 'deployed',
-    };
     return new Map(
-      records.map((record) => [record.applicationId, statusMap[record.status] || 'pending'])
+      records.map((record) => [record.applicationId, this.mapChainStatusToAppStatus(record.status)])
     );
+  }
+
+  private assertSponsorPolicyMatch(
+    sponsor: Sponsor,
+    params: {
+      ownerAddress: Address;
+      eoaAddress?: Address;
+      targetContractAddress?: Address;
+    }
+  ): void {
+    const rules = sponsor.rules;
+    if (!rules) {
+      return;
+    }
+
+    const normalizedContracts = this.normalizeAddressSet(rules.allowedContractAddresses);
+    if (normalizedContracts.size > 0) {
+      if (!params.targetContractAddress) {
+        throw new WalletError(
+          'SPONSOR_CONTRACT_NOT_ALLOWED: target contract is required for sponsor policy',
+          ErrorCode.VALIDATION_ERROR
+        );
+      }
+      if (!normalizedContracts.has(params.targetContractAddress.toLowerCase())) {
+        throw new WalletError(
+          `SPONSOR_CONTRACT_NOT_ALLOWED: ${params.targetContractAddress}`,
+          ErrorCode.VALIDATION_ERROR
+        );
+      }
+    }
+
+    const normalizedWhitelist = this.normalizeAddressSet(rules.userWhitelist);
+    if (normalizedWhitelist.size > 0) {
+      const candidates = [params.ownerAddress, params.eoaAddress].filter(Boolean) as Address[];
+      const whitelisted = candidates.some((address) => normalizedWhitelist.has(address.toLowerCase()));
+      if (!whitelisted) {
+        throw new WalletError(
+          `SPONSOR_USER_NOT_WHITELISTED: ${params.ownerAddress}`,
+          ErrorCode.VALIDATION_ERROR
+        );
+      }
+    }
+  }
+
+  private normalizeAddressSet(addresses?: Address[]): Set<string> {
+    if (!addresses || addresses.length === 0) {
+      return new Set<string>();
+    }
+    return new Set(addresses.map((address) => address.toLowerCase()));
+  }
+
+  private mergeWhitelist(current: Address[], updates: Address[], allowed: boolean): Address[] {
+    const normalized = new Map<string, Address>();
+    for (const address of current) {
+      normalized.set(address.toLowerCase(), address);
+    }
+    if (allowed) {
+      for (const address of updates) {
+        normalized.set(address.toLowerCase(), address);
+      }
+    } else {
+      for (const address of updates) {
+        normalized.delete(address.toLowerCase());
+      }
+    }
+    return Array.from(normalized.values());
   }
 }
 

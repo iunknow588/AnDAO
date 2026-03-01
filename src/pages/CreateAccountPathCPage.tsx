@@ -26,6 +26,7 @@ import { PasswordInputField } from '@/components/PasswordInput/PasswordInputFiel
 import { ErrorHandler } from '@/utils/errors';
 import { normalizePrivateKeyInput, validatePasswordPair } from '@/utils/pathFlowValidation';
 import { requireChainConfig } from '@/utils/chainConfigValidation';
+import { trimInputValue } from '@/utils/formValidation';
 import { useStore } from '@/stores';
 import { createPublicClient, http } from 'viem';
 
@@ -444,6 +445,7 @@ export const CreateAccountPathCPage: React.FC = () => {
       }
       
       // 注册赞助商
+      const passwordValue = trimInputValue(password);
       const id = await sponsorService.registerOnChain({
         sponsorAddress: gasAccountAddress, // 简化：使用Gas账户作为赞助商地址
         gasAccountAddress,
@@ -459,6 +461,8 @@ export const CreateAccountPathCPage: React.FC = () => {
         },
         rules,
         storageConfig,
+        chainId,
+        password: passwordValue,
       });
       
       setSponsorId(id);
@@ -469,7 +473,13 @@ export const CreateAccountPathCPage: React.FC = () => {
           name: channelName,
           inviteCode: channelInviteCode || undefined,
         };
-        await sponsorService.createChannel(id, channelInfo);
+        try {
+          await sponsorService.createChannel(id, channelInfo);
+        } catch (channelError) {
+          ErrorHandler.showError(
+            `渠道创建失败，但赞助商已注册成功：${channelError instanceof Error ? channelError.message : String(channelError)}`
+          );
+        }
       }
       
       setStep(5);

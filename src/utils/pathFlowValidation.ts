@@ -41,6 +41,16 @@ export function validatePassword(password: string): string | null {
   if (!password || password.length < 8) {
     return '密码至少需要8个字符';
   }
+  if (password.length > 128) {
+    return '密码长度不能超过128个字符';
+  }
+  const hasControlChars = Array.from(password).some((char) => {
+    const code = char.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
+  if (hasControlChars) {
+    return '密码不能包含控制字符';
+  }
   return null;
 }
 

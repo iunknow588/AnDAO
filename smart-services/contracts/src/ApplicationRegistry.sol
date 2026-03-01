@@ -45,6 +45,7 @@ contract ApplicationRegistry {
         address ownerAddress;           // 所有者地址（签名者）
         address eoaAddress;             // EOA地址（可选，路径B）
         address sponsorId;             // 赞助商地址
+        address targetContractAddress;  // 目标业务合约地址（可选）
         uint256 chainId;                // 链ID
         string storageIdentifier;       // 存储标识符（CID/URI等）
         StorageProviderType storageType; // 存储类型
@@ -53,6 +54,18 @@ contract ApplicationRegistry {
         uint256 createdAt;              // 创建时间戳
         uint256 reviewedAt;             // 审核时间戳（可选）
         uint256 deployedAt;             // 部署时间戳（可选）
+    }
+
+    struct RegisterApplicationInput {
+        string applicationId;
+        address accountAddress;
+        address ownerAddress;
+        address eoaAddress;
+        address sponsorId;
+        address targetContractAddress;
+        uint256 chainId;
+        string storageIdentifier;
+        StorageProviderType storageType;
     }
     
     /**
@@ -83,6 +96,15 @@ contract ApplicationRegistry {
     mapping(address => SponsorRules) public sponsorRules;
     mapping(address => uint256) public sponsorDailyCount; // 每日赞助计数
     mapping(address => uint256) public sponsorDailyReset; // 每日重置时间戳
+    mapping(address => mapping(address => bool)) public sponsorContractWhitelist;
+    mapping(address => mapping(address => bool)) public sponsorUserWhitelist;
+    mapping(address => uint256) public sponsorContractWhitelistCount;
+    mapping(address => uint256) public sponsorUserWhitelistCount;
+    mapping(address => address[]) private sponsorContractWhitelistEntries;
+    mapping(address => address[]) private sponsorUserWhitelistEntries;
+    mapping(address => mapping(address => uint256)) private sponsorContractWhitelistIndexPlusOne;
+    mapping(address => mapping(address => uint256)) private sponsorUserWhitelistIndexPlusOne;
+    mapping(address => string[]) private sponsorApplicationIds;
     
     // 事件
     event ApplicationRegistered(
@@ -113,64 +135,62 @@ contract ApplicationRegistry {
         bool autoApprove
     );
     
+    event SponsorContractWhitelistUpdated(
+        address indexed sponsorAddress,
+        address indexed targetContract,
+        bool allowed
+    );
+
+    event SponsorUserWhitelistUpdated(
+        address indexed sponsorAddress,
+        address indexed user,
+        bool allowed
+    );
+    
     /**
      * @notice 注册申请索引
      * 
-     * @param applicationId 申请ID
-     * @param accountAddress 账户地址（预测的）
-     * @param ownerAddress 所有者地址
-     * @param eoaAddress EOA地址（可选，路径B）
-     * @param sponsorId 赞助商地址
-     * @param chainId 链ID
-     * @param storageIdentifier 存储标识符
-     * @param storageType 存储类型
+     * @param input 注册申请参数
      */
-    function registerApplication(
-        string memory applicationId,
-        address accountAddress,
-        address ownerAddress,
-        address eoaAddress,
-        address sponsorId,
-        uint256 chainId,
-        string memory storageIdentifier,
-        StorageProviderType storageType
-    ) external {
-        require(bytes(applicationId).length > 0, "Application ID cannot be empty");
-        require(accountAddress != address(0), "Account address cannot be zero");
-        require(ownerAddress != address(0), "Owner address cannot be zero");
-        require(sponsorId != address(0), "Sponsor ID cannot be zero");
-        require(bytes(storageIdentifier).length > 0, "Storage identifier cannot be empty");
-        require(sponsors[sponsorId].isActive, "Sponsor is not active");
+    function registerApplication(RegisterApplicationInput calldata input) external {
+        require(bytes(input.applicationId).length > 0, "Application ID cannot be empty");
+        require(input.accountAddress != address(0), "Account address cannot be zero");
+        require(input.ownerAddress != address(0), "Owner address cannot be zero");
+        require(input.sponsorId != address(0), "Sponsor ID cannot be zero");
+        require(bytes(input.storageIdentifier).length > 0, "Storage identifier cannot be empty");
+        require(sponsors[input.sponsorId].isActive, "Sponsor is not active");
+        _requireSponsorEligible(
+            input.sponsorId,
+            input.targetContractAddress,
+            input.ownerAddress,
+            input.eoaAddress
+        );
         
         // 检查申请是否已存在
         require(
-            bytes(applications[applicationId].applicationId).length == 0,
+            bytes(applications[input.applicationId].applicationId).length == 0,
             "Application already exists"
         );
         
-        // 创建申请索引
-        applications[applicationId] = ApplicationIndex({
-            applicationId: applicationId,
-            accountAddress: accountAddress,
-            ownerAddress: ownerAddress,
-            eoaAddress: eoaAddress,
-            sponsorId: sponsorId,
-            chainId: chainId,
-            storageIdentifier: storageIdentifier,
-            storageType: storageType,
-            status: ApplicationStatus.PENDING,
-            reviewStorageIdentifier: "",
-            createdAt: block.timestamp,
-            reviewedAt: 0,
-            deployedAt: 0
-        });
+        _storeApplication(
+            input.applicationId,
+            input.accountAddress,
+            input.ownerAddress,
+            input.eoaAddress,
+            input.sponsorId,
+            input.targetContractAddress,
+            input.chainId,
+            input.storageIdentifier,
+            input.storageType
+        );
+        sponsorApplicationIds[input.sponsorId].push(input.applicationId);
         
         emit ApplicationRegistered(
-            applicationId,
-            accountAddress,
-            sponsorId,
-            storageIdentifier,
-            storageType
+            input.applicationId,
+            input.accountAddress,
+            input.sponsorId,
+            input.storageIdentifier,
+            input.storageType
         );
     }
     
@@ -264,6 +284,54 @@ contract ApplicationRegistry {
         
         emit SponsorRulesUpdated(msg.sender, dailyLimit, maxGasPerAccount, autoApprove);
     }
+
+    function setSponsorContractWhitelist(address[] calldata targetContracts, bool allowed) external {
+        require(sponsors[msg.sender].isActive, "Sponsor not registered");
+
+        for (uint256 i = 0; i < targetContracts.length; i++) {
+            address target = targetContracts[i];
+            require(target != address(0), "Target contract cannot be zero");
+            bool current = sponsorContractWhitelist[msg.sender][target];
+
+            if (allowed && !current) {
+                sponsorContractWhitelist[msg.sender][target] = true;
+                sponsorContractWhitelistCount[msg.sender] += 1;
+                sponsorContractWhitelistEntries[msg.sender].push(target);
+                sponsorContractWhitelistIndexPlusOne[msg.sender][target] =
+                    sponsorContractWhitelistEntries[msg.sender].length;
+            } else if (!allowed && current) {
+                sponsorContractWhitelist[msg.sender][target] = false;
+                sponsorContractWhitelistCount[msg.sender] -= 1;
+                _removeSponsorContractWhitelistEntry(msg.sender, target);
+            }
+
+            emit SponsorContractWhitelistUpdated(msg.sender, target, allowed);
+        }
+    }
+
+    function setSponsorUserWhitelist(address[] calldata users, bool allowed) external {
+        require(sponsors[msg.sender].isActive, "Sponsor not registered");
+
+        for (uint256 i = 0; i < users.length; i++) {
+            address user = users[i];
+            require(user != address(0), "User cannot be zero");
+            bool current = sponsorUserWhitelist[msg.sender][user];
+
+            if (allowed && !current) {
+                sponsorUserWhitelist[msg.sender][user] = true;
+                sponsorUserWhitelistCount[msg.sender] += 1;
+                sponsorUserWhitelistEntries[msg.sender].push(user);
+                sponsorUserWhitelistIndexPlusOne[msg.sender][user] =
+                    sponsorUserWhitelistEntries[msg.sender].length;
+            } else if (!allowed && current) {
+                sponsorUserWhitelist[msg.sender][user] = false;
+                sponsorUserWhitelistCount[msg.sender] -= 1;
+                _removeSponsorUserWhitelistEntry(msg.sender, user);
+            }
+
+            emit SponsorUserWhitelistUpdated(msg.sender, user, allowed);
+        }
+    }
     
     /**
      * @notice 获取申请索引
@@ -334,6 +402,79 @@ contract ApplicationRegistry {
         
         return sponsorDailyCount[sponsorAddress] < rules.dailyLimit;
     }
+
+    function canSponsorFor(
+        address sponsorAddress,
+        address targetContractAddress,
+        address ownerAddress,
+        address eoaAddress
+    ) external view returns (bool) {
+        SponsorInfo memory sponsor = sponsors[sponsorAddress];
+        if (!sponsor.isActive) {
+            return false;
+        }
+        
+        SponsorRules memory rules = sponsorRules[sponsorAddress];
+        if (rules.dailyLimit != 0) {
+            uint256 today = block.timestamp / 1 days;
+            uint256 lastReset = sponsorDailyReset[sponsorAddress];
+            if (lastReset >= today && sponsorDailyCount[sponsorAddress] >= rules.dailyLimit) {
+                return false;
+            }
+        }
+        if (!_isSponsorContractAllowed(sponsorAddress, targetContractAddress)) {
+            return false;
+        }
+        return _isSponsorUserAllowed(sponsorAddress, ownerAddress, eoaAddress);
+    }
+
+    function getSponsorContractWhitelist(address sponsorAddress)
+        external
+        view
+        returns (address[] memory)
+    {
+        return sponsorContractWhitelistEntries[sponsorAddress];
+    }
+
+    function getSponsorUserWhitelist(address sponsorAddress)
+        external
+        view
+        returns (address[] memory)
+    {
+        return sponsorUserWhitelistEntries[sponsorAddress];
+    }
+
+    function getSponsorApplicationCount(address sponsorAddress)
+        external
+        view
+        returns (uint256)
+    {
+        return sponsorApplicationIds[sponsorAddress].length;
+    }
+
+    function getSponsorApplicationIds(
+        address sponsorAddress,
+        uint256 offset,
+        uint256 limit
+    ) external view returns (string[] memory) {
+        uint256 total = sponsorApplicationIds[sponsorAddress].length;
+        if (offset >= total || limit == 0) {
+            return new string[](0);
+        }
+
+        uint256 endExclusive = offset + limit;
+        if (endExclusive > total) {
+            endExclusive = total;
+        }
+        uint256 resultLength = endExclusive - offset;
+        string[] memory result = new string[](resultLength);
+
+        for (uint256 i = 0; i < resultLength; i++) {
+            result[i] = sponsorApplicationIds[sponsorAddress][offset + i];
+        }
+
+        return result;
+    }
     
     /**
      * @notice 增加每日计数（内部方法）
@@ -352,5 +493,114 @@ contract ApplicationRegistry {
             // 同一天，增加计数
             sponsorDailyCount[sponsorAddress]++;
         }
+    }
+
+    function _requireSponsorEligible(
+        address sponsorAddress,
+        address targetContractAddress,
+        address ownerAddress,
+        address eoaAddress
+    ) internal view {
+        require(
+            _isSponsorContractAllowed(sponsorAddress, targetContractAddress),
+            "Sponsor contract whitelist check failed"
+        );
+        require(
+            _isSponsorUserAllowed(sponsorAddress, ownerAddress, eoaAddress),
+            "Sponsor user whitelist check failed"
+        );
+    }
+
+    function _storeApplication(
+        string memory applicationId,
+        address accountAddress,
+        address ownerAddress,
+        address eoaAddress,
+        address sponsorId,
+        address targetContractAddress,
+        uint256 chainId,
+        string memory storageIdentifier,
+        StorageProviderType storageType
+    ) internal {
+        ApplicationIndex storage app = applications[applicationId];
+        app.applicationId = applicationId;
+        app.accountAddress = accountAddress;
+        app.ownerAddress = ownerAddress;
+        app.eoaAddress = eoaAddress;
+        app.sponsorId = sponsorId;
+        app.targetContractAddress = targetContractAddress;
+        app.chainId = chainId;
+        app.storageIdentifier = storageIdentifier;
+        app.storageType = storageType;
+        app.status = ApplicationStatus.PENDING;
+        app.reviewStorageIdentifier = "";
+        app.createdAt = block.timestamp;
+        app.reviewedAt = 0;
+        app.deployedAt = 0;
+    }
+
+    function _removeSponsorContractWhitelistEntry(address sponsorAddress, address target) internal {
+        uint256 indexPlusOne = sponsorContractWhitelistIndexPlusOne[sponsorAddress][target];
+        if (indexPlusOne == 0) {
+            return;
+        }
+
+        uint256 index = indexPlusOne - 1;
+        uint256 lastIndex = sponsorContractWhitelistEntries[sponsorAddress].length - 1;
+        if (index != lastIndex) {
+            address lastValue = sponsorContractWhitelistEntries[sponsorAddress][lastIndex];
+            sponsorContractWhitelistEntries[sponsorAddress][index] = lastValue;
+            sponsorContractWhitelistIndexPlusOne[sponsorAddress][lastValue] = index + 1;
+        }
+        sponsorContractWhitelistEntries[sponsorAddress].pop();
+        sponsorContractWhitelistIndexPlusOne[sponsorAddress][target] = 0;
+    }
+
+    function _removeSponsorUserWhitelistEntry(address sponsorAddress, address user) internal {
+        uint256 indexPlusOne = sponsorUserWhitelistIndexPlusOne[sponsorAddress][user];
+        if (indexPlusOne == 0) {
+            return;
+        }
+
+        uint256 index = indexPlusOne - 1;
+        uint256 lastIndex = sponsorUserWhitelistEntries[sponsorAddress].length - 1;
+        if (index != lastIndex) {
+            address lastValue = sponsorUserWhitelistEntries[sponsorAddress][lastIndex];
+            sponsorUserWhitelistEntries[sponsorAddress][index] = lastValue;
+            sponsorUserWhitelistIndexPlusOne[sponsorAddress][lastValue] = index + 1;
+        }
+        sponsorUserWhitelistEntries[sponsorAddress].pop();
+        sponsorUserWhitelistIndexPlusOne[sponsorAddress][user] = 0;
+    }
+
+    function _isSponsorContractAllowed(address sponsorAddress, address targetContractAddress)
+        internal
+        view
+        returns (bool)
+    {
+        if (sponsorContractWhitelistCount[sponsorAddress] == 0) {
+            return true;
+        }
+        if (targetContractAddress == address(0)) {
+            return false;
+        }
+        return sponsorContractWhitelist[sponsorAddress][targetContractAddress];
+    }
+
+    function _isSponsorUserAllowed(address sponsorAddress, address ownerAddress, address eoaAddress)
+        internal
+        view
+        returns (bool)
+    {
+        if (sponsorUserWhitelistCount[sponsorAddress] == 0) {
+            return true;
+        }
+        if (sponsorUserWhitelist[sponsorAddress][ownerAddress]) {
+            return true;
+        }
+        if (eoaAddress != address(0) && sponsorUserWhitelist[sponsorAddress][eoaAddress]) {
+            return true;
+        }
+        return false;
     }
 }

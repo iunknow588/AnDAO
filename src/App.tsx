@@ -12,6 +12,7 @@ import { GlobalStyle } from '@/styles/global';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PasswordInputProvider } from '@/components/PasswordInput';
 import { GlobalMessage } from '@/components/GlobalMessage';
+import { RequireAuth } from '@/components/Auth/RequireAuth';
 
 // 懒加载页面组件
 const WelcomePage = lazy(() => import('@/pages/WelcomePage').then(m => ({ default: m.WelcomePage })));
@@ -59,7 +60,7 @@ function App() {
           <Suspense fallback={<LoadingFallback />}>
             <Routes>
               <Route path="/" element={<MainLayout />}>
-                <Route index element={<HomePage />} />
+                <Route index element={<RequireAuth><HomePage /></RequireAuth>} />
                 <Route path="welcome" element={<WelcomePage />} />
                 <Route path="wallet/create" element={<CreateAccountPage />} />
                 <Route path="wallet/create/path-a" element={<CreateAccountPathAPage />} />
@@ -67,17 +68,17 @@ function App() {
                 <Route path="wallet/create/path-c" element={<CreateAccountPathCPage />} />
                 <Route path="wallet/import" element={<ImportWalletPage />} />
                 <Route path="wallet/unlock" element={<UnlockWalletPage />} />
-                <Route path="assets" element={<AssetsPage />} />
-                <Route path="send" element={<SendTransactionPage />} />
-                <Route path="transactions" element={<TransactionHistoryPage />} />
-                <Route path="settings" element={<SettingsPage />} />
-                <Route path="guardians" element={<GuardiansPage />} />
-                <Route path="guardians/proposals" element={<GuardianProposalsPage />} />
-                <Route path="two-phase-commit" element={<TwoPhaseCommitPage />} />
-                <Route path="recovery" element={<RecoveryPage />} />
-                <Route path="plugins" element={<PluginsPage />} />
-                <Route path="sponsor/dashboard" element={<SponsorDashboardPage />} />
-                <Route path="path-conversion" element={<PathConversionPage />} />
+                <Route path="assets" element={<RequireAuth><AssetsPage /></RequireAuth>} />
+                <Route path="send" element={<RequireAuth><SendTransactionPage /></RequireAuth>} />
+                <Route path="transactions" element={<RequireAuth><TransactionHistoryPage /></RequireAuth>} />
+                <Route path="settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+                <Route path="guardians" element={<RequireAuth><GuardiansPage /></RequireAuth>} />
+                <Route path="guardians/proposals" element={<RequireAuth><GuardianProposalsPage /></RequireAuth>} />
+                <Route path="two-phase-commit" element={<RequireAuth><TwoPhaseCommitPage /></RequireAuth>} />
+                <Route path="recovery" element={<RequireAuth><RecoveryPage /></RequireAuth>} />
+                <Route path="plugins" element={<RequireAuth><PluginsPage /></RequireAuth>} />
+                <Route path="sponsor/dashboard" element={<RequireAuth><SponsorDashboardPage /></RequireAuth>} />
+                <Route path="path-conversion" element={<RequireAuth><PathConversionPage /></RequireAuth>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>

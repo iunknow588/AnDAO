@@ -13,6 +13,8 @@ import "src/validator/MultiChainValidator.sol";
  * 适用于已经部署了 Kernel 和 KernelFactory，只需要部署 MultiChainValidator 的场景
  * 
  * @dev 支持的链：
+ * - Avalanche Fuji Testnet (Chain ID: 43113)
+ * - Avalanche Mainnet (Chain ID: 43114)
  * - Mantle Sepolia Testnet (Chain ID: 5003)
  * - Mantle Mainnet (Chain ID: 5000)
  * - Injective Testnet (Chain ID: 1439) - EVM 兼容

@@ -152,6 +152,7 @@ async function initSponsorApplicationIndexerResolver() {
             ownerAddress: (item.ownerAddress || '0x0000000000000000000000000000000000000000') as `0x${string}`,
             eoaAddress: (item.eoaAddress || '0x0000000000000000000000000000000000000000') as `0x${string}`,
             sponsorId: (item.sponsorId || sponsorAddress) as `0x${string}`,
+            targetContractAddress: (item.targetContractAddress || '0x0000000000000000000000000000000000000000') as `0x${string}`,
             chainId: toBigIntSafe(item.chainId, BigInt(chainId)),
             storageIdentifier: String(item.storageIdentifier ?? ''),
             storageType: Number(item.storageType ?? 0),

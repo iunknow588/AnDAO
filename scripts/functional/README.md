@@ -2,6 +2,8 @@
 
 业务功能辅助脚本（用于测试数据、功能联调）：
 
-1. `generate-test-accounts.ts`
-2. `generate-test-accounts-simple.ts`
-3. `mock-application-indexer.ts`
+1. `mock-application-indexer.ts`
+
+说明：测试账号与领币脚本已迁移到：
+
+`/home/lc/luckee_dao/works-docs/道安钱包项目/测试账号`

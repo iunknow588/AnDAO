@@ -13,6 +13,7 @@ import { signatureService } from '@/services/SignatureService';
 import { keyManagerService } from '@/services/KeyManagerService';
 import { chainService } from '@/services/ChainService';
 import { getChainConfigByChainId } from '@/config/chains';
+import { rpcClientManager } from '@/utils/RpcClientManager';
 import type { TypedData } from '@/services/SignatureService';
 import type { Address } from 'viem';
 
@@ -32,6 +33,12 @@ type SendTransactionParams = {
   data?: string;
   gas?: string;
   gasPrice?: string;
+  sponsorPolicyContext?: {
+    sponsored?: boolean;
+    sponsorId?: string;
+    ownerAddress?: string;
+    eoaAddress?: string | null;
+  };
 };
 
 type AddEthereumChainParams = {
@@ -45,6 +52,30 @@ type AddEthereumChainParams = {
   rpcUrls: string[];
   blockExplorerUrls?: string[];
   iconUrls?: string[];
+};
+
+type BalanceBlockTag =
+  | 'latest'
+  | 'pending'
+  | 'earliest'
+  | 'safe'
+  | 'finalized';
+
+type WalletGasPolicy = {
+  primary: 'self_pay' | 'sponsored';
+  fallback?: 'self_pay' | 'sponsored';
+  sponsorIdOrInviteCode?: string;
+};
+
+type WalletSendTransactionParams = {
+  chainId?: number;
+  to: string;
+  data?: string;
+  value?: string;
+  gas?: string;
+  gasPrice?: string;
+  gasPolicy?: WalletGasPolicy;
+  sponsorPolicyContext?: SendTransactionParams['sponsorPolicyContext'];
 };
 
 /**
@@ -99,6 +130,7 @@ export class AnDaoWalletProvider implements EthereumProvider {
     // 需要用户确认的方法
     const requiresConfirmation = [
       'eth_sendTransaction',
+      'wallet_sendTransaction',
       'eth_sign',
       'personal_sign',
       'eth_signTypedData',
@@ -127,6 +159,13 @@ export class AnDaoWalletProvider implements EthereumProvider {
         return this.getAccounts();
       case 'eth_chainId':
         return this.getChainId();
+      case 'eth_getBalance':
+        return this.getBalance(
+          this.parseBalanceAddressParam(params[0]),
+          this.parseBalanceBlockTagParam(params[1])
+        );
+      case 'wallet_watchTx':
+        return this.watchTransaction(this.parseWatchTxParam(params[0]));
       default:
         throw new Error(`Unsupported method: ${method}`);
     }
@@ -237,6 +276,8 @@ export class AnDaoWalletProvider implements EthereumProvider {
     switch (method) {
       case 'eth_sendTransaction':
         return this.sendTransaction(this.parseTransactionParam(params[0]));
+      case 'wallet_sendTransaction':
+        return this.sendTransaction(this.parseWalletSendTransactionParam(params[0]));
       case 'eth_sign':
         return this.sign(this.parseStringParam(params[0], 'eth_sign.address'), this.parseStringParam(params[1], 'eth_sign.message'));
       case 'personal_sign':
@@ -289,6 +330,30 @@ export class AnDaoWalletProvider implements EthereumProvider {
   }
 
   /**
+   * 获取地址余额（wei，十六进制）
+   */
+  private async getBalance(
+    address?: string,
+    blockTag: BalanceBlockTag = 'latest'
+  ): Promise<string> {
+    const targetAddress = address || this.getActiveAccount()?.address;
+    if (!targetAddress) {
+      throw new Error('No account available');
+    }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(targetAddress)) {
+      throw new Error('Invalid parameter: address must be a valid EVM address');
+    }
+
+    const publicClient = rpcClientManager.getPublicClient(this.accountStore.currentChainId);
+    const balance = await publicClient.getBalance({
+      address: targetAddress as Address,
+      blockTag,
+    });
+
+    return `0x${balance.toString(16)}`;
+  }
+
+  /**
    * 发送交易（转换为 UserOperation）
    */
   private async sendTransaction(tx: SendTransactionParams): Promise<string> {
@@ -331,7 +396,16 @@ export class AnDaoWalletProvider implements EthereumProvider {
       chainConfig.chainId,
       tx.to as `0x${string}`,
       data as `0x${string}`,
-      ownerPrivateKey
+      ownerPrivateKey,
+      BigInt(tx.value || '0'),
+      tx.sponsorPolicyContext
+        ? {
+            sponsored: tx.sponsorPolicyContext.sponsored,
+            sponsorId: tx.sponsorPolicyContext.sponsorId,
+            ownerAddress: tx.sponsorPolicyContext.ownerAddress as Address | undefined,
+            eoaAddress: tx.sponsorPolicyContext.eoaAddress as Address | undefined,
+          }
+        : undefined
     );
 
     // 触发交易发送事件
@@ -341,6 +415,35 @@ export class AnDaoWalletProvider implements EthereumProvider {
     });
 
     return result || '';
+  }
+
+  private async watchTransaction(txHash: string): Promise<{
+    status: 'submitted' | 'confirmed' | 'failed';
+    receipt?: unknown;
+    error?: { code: string; message: string };
+  }> {
+    try {
+      if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+        throw new Error('Invalid txHash');
+      }
+      const publicClient = rpcClientManager.getPublicClient(this.accountStore.currentChainId);
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash as `0x${string}`,
+        timeout: 120_000,
+      });
+      return {
+        status: receipt.status === 'success' ? 'confirmed' : 'failed',
+        receipt,
+      };
+    } catch (error) {
+      return {
+        status: 'failed',
+        error: {
+          code: 'TX_WATCH_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
   }
 
   /**
@@ -674,6 +777,29 @@ export class AnDaoWalletProvider implements EthereumProvider {
     if (typeof candidate.to !== 'string' || candidate.to.length === 0) {
       throw new Error('Invalid parameter: transaction.to must be a non-empty string');
     }
+    const sponsorPolicyContext =
+      candidate.sponsorPolicyContext && typeof candidate.sponsorPolicyContext === 'object'
+        ? {
+            sponsored:
+              typeof candidate.sponsorPolicyContext.sponsored === 'boolean'
+                ? candidate.sponsorPolicyContext.sponsored
+                : undefined,
+            sponsorId:
+              typeof candidate.sponsorPolicyContext.sponsorId === 'string'
+                ? candidate.sponsorPolicyContext.sponsorId
+                : undefined,
+            ownerAddress:
+              typeof candidate.sponsorPolicyContext.ownerAddress === 'string'
+                ? candidate.sponsorPolicyContext.ownerAddress
+                : undefined,
+            eoaAddress:
+              candidate.sponsorPolicyContext.eoaAddress === null
+                ? null
+                : typeof candidate.sponsorPolicyContext.eoaAddress === 'string'
+                ? candidate.sponsorPolicyContext.eoaAddress
+                : undefined,
+          }
+        : undefined;
     return {
       from: typeof candidate.from === 'string' ? candidate.from : undefined,
       to: candidate.to,
@@ -681,6 +807,101 @@ export class AnDaoWalletProvider implements EthereumProvider {
       data: typeof candidate.data === 'string' ? candidate.data : undefined,
       gas: typeof candidate.gas === 'string' ? candidate.gas : undefined,
       gasPrice: typeof candidate.gasPrice === 'string' ? candidate.gasPrice : undefined,
+      sponsorPolicyContext,
+    };
+  }
+
+  private parseWalletSendTransactionParam(value: unknown): SendTransactionParams {
+    if (!value || typeof value !== 'object') {
+      throw new Error('Invalid parameter: wallet_sendTransaction requires an object payload');
+    }
+    const candidate = value as WalletSendTransactionParams;
+    if (typeof candidate.to !== 'string' || candidate.to.length === 0) {
+      throw new Error('Invalid parameter: wallet_sendTransaction.to must be a non-empty string');
+    }
+    if (
+      typeof candidate.chainId === 'number' &&
+      Number.isInteger(candidate.chainId) &&
+      candidate.chainId > 0 &&
+      candidate.chainId !== this.accountStore.currentChainId
+    ) {
+      throw new Error(
+        `Chain mismatch: wallet_sendTransaction.chainId=${candidate.chainId}, current=${this.accountStore.currentChainId}`
+      );
+    }
+
+    const explicitSponsorContext = this.parseSponsorPolicyContext(candidate.sponsorPolicyContext);
+    const gasPolicyContext: SendTransactionParams['sponsorPolicyContext'] =
+      candidate.gasPolicy?.primary === 'sponsored' || candidate.gasPolicy?.fallback === 'sponsored'
+        ? {
+            sponsored: true,
+            sponsorId: candidate.gasPolicy.sponsorIdOrInviteCode,
+          }
+        : undefined;
+
+    return {
+      to: candidate.to,
+      data: typeof candidate.data === 'string' ? candidate.data : undefined,
+      value: typeof candidate.value === 'string' ? candidate.value : undefined,
+      gas: typeof candidate.gas === 'string' ? candidate.gas : undefined,
+      gasPrice: typeof candidate.gasPrice === 'string' ? candidate.gasPrice : undefined,
+      sponsorPolicyContext: explicitSponsorContext || gasPolicyContext,
+    };
+  }
+
+  private parseBalanceAddressParam(value: unknown): string | undefined {
+    if (typeof value === 'undefined' || value === null) {
+      return undefined;
+    }
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new Error('Invalid parameter: eth_getBalance.address must be a string');
+    }
+    return value;
+  }
+
+  private parseBalanceBlockTagParam(value: unknown): BalanceBlockTag | undefined {
+    if (typeof value === 'undefined' || value === null) {
+      return undefined;
+    }
+    if (typeof value !== 'string') {
+      throw new Error('Invalid parameter: eth_getBalance.blockTag must be a string');
+    }
+    const tags: BalanceBlockTag[] = ['latest', 'pending', 'earliest', 'safe', 'finalized'];
+    if (!tags.includes(value as BalanceBlockTag)) {
+      throw new Error(
+        'Invalid parameter: eth_getBalance.blockTag must be one of latest|pending|earliest|safe|finalized'
+      );
+    }
+    return value as BalanceBlockTag;
+  }
+
+  private parseWatchTxParam(value: unknown): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (value && typeof value === 'object' && typeof (value as { txHash?: unknown }).txHash === 'string') {
+      return (value as { txHash: string }).txHash;
+    }
+    throw new Error('Invalid parameter: wallet_watchTx requires txHash');
+  }
+
+  private parseSponsorPolicyContext(
+    value: unknown
+  ): SendTransactionParams['sponsorPolicyContext'] | undefined {
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+    const candidate = value as NonNullable<SendTransactionParams['sponsorPolicyContext']>;
+    return {
+      sponsored: typeof candidate.sponsored === 'boolean' ? candidate.sponsored : undefined,
+      sponsorId: typeof candidate.sponsorId === 'string' ? candidate.sponsorId : undefined,
+      ownerAddress: typeof candidate.ownerAddress === 'string' ? candidate.ownerAddress : undefined,
+      eoaAddress:
+        candidate.eoaAddress === null
+          ? null
+          : typeof candidate.eoaAddress === 'string'
+          ? candidate.eoaAddress
+          : undefined,
     };
   }
 

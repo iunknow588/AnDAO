@@ -7,6 +7,8 @@ import { TransactionRelayer } from '../TransactionRelayer';
 import { bundlerClient } from '../BundlerClient';
 import { Transaction } from '@/types';
 import type { Address, Hash } from 'viem';
+import { accountManager } from '../AccountManager';
+import { applicationRegistryClient } from '../ApplicationRegistryClient';
 
 // Mock bundler client
 vi.mock('../BundlerClient', () => ({
@@ -28,6 +30,13 @@ vi.mock('../AccountManager', () => ({
       status: 'deployed' as const,
       deployedAt: Date.now(),
     }),
+  },
+}));
+
+vi.mock('../ApplicationRegistryClient', () => ({
+  applicationRegistryClient: {
+    isInitialized: vi.fn().mockReturnValue(true),
+    canSponsorFor: vi.fn().mockResolvedValue(true),
   },
 }));
 
@@ -53,6 +62,7 @@ vi.mock('@/config/chains', () => ({
     name: 'Mantle',
     rpcUrl: 'https://rpc.mantle.xyz',
     bundlerUrl: 'https://bundler.mantle.xyz',
+    paymasterAddress: '0x9999999999999999999999999999999999999999',
     entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
   }),
 }));
@@ -77,6 +87,8 @@ describe('TransactionRelayer', () => {
   beforeEach(() => {
     transactionRelayer = new TransactionRelayer();
     vi.clearAllMocks();
+    vi.mocked(applicationRegistryClient.isInitialized).mockReturnValue(true);
+    vi.mocked(applicationRegistryClient.canSponsorFor).mockResolvedValue(true);
   });
 
   describe('sendTransaction', () => {
@@ -107,6 +119,70 @@ describe('TransactionRelayer', () => {
       expect(hash).toBe(mockHash);
       expect(bundlerClient.setBundler).toHaveBeenCalled();
       expect(bundlerClient.sendUserOperation).toHaveBeenCalled();
+    });
+
+    it('有 sponsor 绑定时应调用 canSponsorFor 门禁', async () => {
+      const accountAddress = '0x1234567890123456789012345678901234567890' as Address;
+      const chainId = 5000;
+      const target = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd' as Address;
+      const data = '0x1234';
+      const ownerPrivateKey = '0x1234567890123456789012345678901234567890123456789012345678901234' as `0x${string}`;
+      const mockHash = '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' as Hash;
+
+      vi.mocked(accountManager.getAccountByAddress).mockResolvedValue({
+        address: accountAddress,
+        chainId,
+        owner: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        sponsorId: 'sponsor-0x1111111111111111111111111111111111111111-1',
+        status: 'deployed',
+        createdAt: Date.now(),
+      });
+      vi.mocked(bundlerClient.sendUserOperation).mockResolvedValue(mockHash);
+      vi.mocked(bundlerClient.estimateUserOperationGas).mockResolvedValue({
+        callGasLimit: BigInt(100000),
+        verificationGasLimit: BigInt(100000),
+        preVerificationGas: BigInt(50000),
+      });
+
+      const hash = await transactionRelayer.sendTransaction(
+        accountAddress,
+        chainId,
+        target,
+        data,
+        ownerPrivateKey
+      );
+
+      expect(hash).toBe(mockHash);
+      expect(applicationRegistryClient.canSponsorFor).toHaveBeenCalledWith(
+        chainId,
+        '0x1111111111111111111111111111111111111111',
+        target,
+        '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        null
+      );
+    });
+
+    it('sponsor 门禁拒绝时应阻止发送', async () => {
+      const accountAddress = '0x1234567890123456789012345678901234567890' as Address;
+      const chainId = 5000;
+      const target = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd' as Address;
+      const data = '0x1234';
+      const ownerPrivateKey = '0x1234567890123456789012345678901234567890123456789012345678901234' as `0x${string}`;
+
+      vi.mocked(accountManager.getAccountByAddress).mockResolvedValue({
+        address: accountAddress,
+        chainId,
+        owner: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        sponsorId: 'sponsor-0x1111111111111111111111111111111111111111-1',
+        status: 'deployed',
+        createdAt: Date.now(),
+      });
+      vi.mocked(applicationRegistryClient.canSponsorFor).mockResolvedValue(false);
+
+      await expect(
+        transactionRelayer.sendTransaction(accountAddress, chainId, target, data, ownerPrivateKey)
+      ).rejects.toThrow(/SPONSOR_POLICY_BLOCKED/);
+      expect(bundlerClient.sendUserOperation).not.toHaveBeenCalled();
     });
 
     it('应该在缺少 Bundler URL 时抛出错误', async () => {

@@ -4,9 +4,9 @@
  * 定义 Vite 环境变量的类型，用于 TypeScript 类型检查和 IDE 自动补全
  * 
  * 支持的链：
- * - Mantle（优先支持）
- * - Injective（开发中）
- * - Avalanche（开发中）
+ * - Avalanche（默认开发链：Fuji）
+ * - Mantle（可选）
+ * - Injective（可选）
  * 
  * @module env
  */
@@ -122,6 +122,8 @@ interface ImportMetaEnv {
   readonly VITE_APPLICATION_REGISTRY_ADDRESS?: string;
   /** 赞助商申请索引服务 URL（可选） */
   readonly VITE_APPLICATION_INDEXER_URL?: string;
+  /** Sponsor 创建申请是否强制即时上链（true/false，默认 Avalanche 严格） */
+  readonly VITE_SPONSOR_STRICT_ONCHAIN?: string;
 }
 
 /**

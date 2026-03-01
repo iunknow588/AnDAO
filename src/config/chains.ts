@@ -346,10 +346,9 @@ export const CHAIN_GROUPS: ChainGroup[] = [
   },
 ];
 
-// 默认链（MVP 阶段使用 Mantle）
-// 注意：开发环境建议使用测试网，生产环境切换到主网
-export const DEFAULT_CHAIN = SupportedChain.MANTLE;
-export const DEFAULT_CHAIN_CONFIG = MANTLE_CHAIN;
+// 默认链：Avalanche（首页默认使用 Avalanche Fuji 测试网）
+export const DEFAULT_CHAIN = SupportedChain.AVALANCHE;
+export const DEFAULT_CHAIN_CONFIG = AVALANCHE_FUJI_CHAIN;
 
 /**
  * 获取链配置

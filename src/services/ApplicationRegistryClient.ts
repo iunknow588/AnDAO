@@ -21,14 +21,21 @@ const LOG_CONTEXT = 'ApplicationRegistryClient';
 const APPLICATION_REGISTRY_ABI = [
   {
     inputs: [
-      { name: 'applicationId', type: 'string' },
-      { name: 'accountAddress', type: 'address' },
-      { name: 'ownerAddress', type: 'address' },
-      { name: 'eoaAddress', type: 'address' },
-      { name: 'sponsorId', type: 'address' },
-      { name: 'chainId', type: 'uint256' },
-      { name: 'storageIdentifier', type: 'string' },
-      { name: 'storageType', type: 'uint8' },
+      {
+        components: [
+          { name: 'applicationId', type: 'string' },
+          { name: 'accountAddress', type: 'address' },
+          { name: 'ownerAddress', type: 'address' },
+          { name: 'eoaAddress', type: 'address' },
+          { name: 'sponsorId', type: 'address' },
+          { name: 'targetContractAddress', type: 'address' },
+          { name: 'chainId', type: 'uint256' },
+          { name: 'storageIdentifier', type: 'string' },
+          { name: 'storageType', type: 'uint8' },
+        ],
+        name: 'input',
+        type: 'tuple',
+      },
     ],
     name: 'registerApplication',
     outputs: [],
@@ -71,6 +78,26 @@ const APPLICATION_REGISTRY_ABI = [
     type: 'function',
   },
   {
+    inputs: [
+      { name: 'targetContracts', type: 'address[]' },
+      { name: 'allowed', type: 'bool' },
+    ],
+    name: 'setSponsorContractWhitelist',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'users', type: 'address[]' },
+      { name: 'allowed', type: 'bool' },
+    ],
+    name: 'setSponsorUserWhitelist',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
     inputs: [{ name: 'applicationId', type: 'string' }],
     name: 'getApplication',
     outputs: [
@@ -81,6 +108,7 @@ const APPLICATION_REGISTRY_ABI = [
           { name: 'ownerAddress', type: 'address' },
           { name: 'eoaAddress', type: 'address' },
           { name: 'sponsorId', type: 'address' },
+          { name: 'targetContractAddress', type: 'address' },
           { name: 'chainId', type: 'uint256' },
           { name: 'storageIdentifier', type: 'string' },
           { name: 'storageType', type: 'uint8' },
@@ -125,6 +153,50 @@ const APPLICATION_REGISTRY_ABI = [
     stateMutability: 'view',
     type: 'function',
   },
+  {
+    inputs: [
+      { name: 'sponsorAddress', type: 'address' },
+      { name: 'targetContractAddress', type: 'address' },
+      { name: 'ownerAddress', type: 'address' },
+      { name: 'eoaAddress', type: 'address' },
+    ],
+    name: 'canSponsorFor',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'sponsorAddress', type: 'address' }],
+    name: 'getSponsorContractWhitelist',
+    outputs: [{ name: '', type: 'address[]' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'sponsorAddress', type: 'address' }],
+    name: 'getSponsorUserWhitelist',
+    outputs: [{ name: '', type: 'address[]' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'sponsorAddress', type: 'address' }],
+    name: 'getSponsorApplicationCount',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'sponsorAddress', type: 'address' },
+      { name: 'offset', type: 'uint256' },
+      { name: 'limit', type: 'uint256' },
+    ],
+    name: 'getSponsorApplicationIds',
+    outputs: [{ name: '', type: 'string[]' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
 ] as const;
 
 /**
@@ -152,6 +224,7 @@ export interface ApplicationRegistryRecord {
   ownerAddress: Address;
   eoaAddress: Address;
   sponsorId: Address;
+  targetContractAddress: Address;
   chainId: bigint;
   storageIdentifier: string;
   storageType: number;
@@ -196,6 +269,10 @@ export class ApplicationRegistryClient {
   init(contractAddress: Address): void {
     this.contractAddress = contractAddress;
     logger.info('ApplicationRegistryClient initialized', LOG_CONTEXT, { contractAddress });
+  }
+
+  isInitialized(): boolean {
+    return this.contractAddress !== null;
   }
   
   /**
@@ -264,6 +341,7 @@ export class ApplicationRegistryClient {
     ownerAddress: Address,
     eoaAddress: Address | null,
     sponsorId: Address,
+    targetContractAddress: Address | null,
     storageIdentifier: string,
     storageType: StorageProviderType,
     privateKey: `0x${string}`
@@ -284,14 +362,17 @@ export class ApplicationRegistryClient {
         abi: APPLICATION_REGISTRY_ABI,
         functionName: 'registerApplication',
         args: [
-          applicationId,
-          accountAddress,
-          ownerAddress,
-          eoaAddress || '0x0000000000000000000000000000000000000000' as Address,
-          sponsorId,
-          BigInt(chainId),
-          storageIdentifier,
-          contractStorageType,
+          {
+            applicationId,
+            accountAddress,
+            ownerAddress,
+            eoaAddress: eoaAddress || '0x0000000000000000000000000000000000000000' as Address,
+            sponsorId,
+            targetContractAddress: targetContractAddress || '0x0000000000000000000000000000000000000000' as Address,
+            chainId: BigInt(chainId),
+            storageIdentifier,
+            storageType: contractStorageType,
+          },
         ],
         chain: this.getChain(chainId),
       });
@@ -446,6 +527,72 @@ export class ApplicationRegistryClient {
       throw error;
     }
   }
+
+  async setSponsorContractWhitelist(
+    chainId: number,
+    targetContracts: Address[],
+    allowed: boolean,
+    privateKey: `0x${string}`
+  ): Promise<Hash> {
+    if (!this.contractAddress) {
+      throw new Error('ApplicationRegistry contract address not set');
+    }
+
+    try {
+      const walletClient = this.getWalletClient(chainId, privateKey);
+      const hash = await walletClient.writeContract({
+        account: walletClient.account ?? null,
+        address: this.contractAddress,
+        abi: APPLICATION_REGISTRY_ABI,
+        functionName: 'setSponsorContractWhitelist',
+        args: [targetContracts, allowed],
+        chain: this.getChain(chainId),
+      });
+
+      logger.info('Sponsor contract whitelist updated', LOG_CONTEXT, {
+        count: targetContracts.length,
+        allowed,
+        hash,
+      });
+      return hash;
+    } catch (error) {
+      ErrorHandler.handleError(error, ErrorCode.CONTRACT_ERROR);
+      throw error;
+    }
+  }
+
+  async setSponsorUserWhitelist(
+    chainId: number,
+    users: Address[],
+    allowed: boolean,
+    privateKey: `0x${string}`
+  ): Promise<Hash> {
+    if (!this.contractAddress) {
+      throw new Error('ApplicationRegistry contract address not set');
+    }
+
+    try {
+      const walletClient = this.getWalletClient(chainId, privateKey);
+      const hash = await walletClient.writeContract({
+        account: walletClient.account ?? null,
+        address: this.contractAddress,
+        abi: APPLICATION_REGISTRY_ABI,
+        functionName: 'setSponsorUserWhitelist',
+        args: [users, allowed],
+        chain: this.getChain(chainId),
+      });
+
+      logger.info('Sponsor user whitelist updated', LOG_CONTEXT, {
+        count: users.length,
+        allowed,
+        hash,
+      });
+      return hash;
+    } catch (error) {
+      ErrorHandler.handleError(error, ErrorCode.CONTRACT_ERROR);
+      throw error;
+    }
+  }
   
   /**
    * 查询申请索引
@@ -471,20 +618,22 @@ export class ApplicationRegistryClient {
 
       if (Array.isArray(result) && result.length >= 13) {
         const tuple = result as readonly unknown[];
+        const hasTargetContract = tuple.length >= 14;
         return {
           applicationId: String(tuple[0] ?? ''),
           accountAddress: tuple[1] as Address,
           ownerAddress: tuple[2] as Address,
           eoaAddress: tuple[3] as Address,
           sponsorId: tuple[4] as Address,
-          chainId: BigInt(tuple[5] as bigint | number | string),
-          storageIdentifier: String(tuple[6] ?? ''),
-          storageType: Number(tuple[7] ?? 0),
-          status: Number(tuple[8] ?? 0),
-          reviewStorageIdentifier: String(tuple[9] ?? ''),
-          createdAt: BigInt(tuple[10] as bigint | number | string),
-          reviewedAt: BigInt(tuple[11] as bigint | number | string),
-          deployedAt: BigInt(tuple[12] as bigint | number | string),
+          targetContractAddress: (hasTargetContract ? tuple[5] : '0x0000000000000000000000000000000000000000') as Address,
+          chainId: BigInt(tuple[hasTargetContract ? 6 : 5] as bigint | number | string),
+          storageIdentifier: String(tuple[hasTargetContract ? 7 : 6] ?? ''),
+          storageType: Number(tuple[hasTargetContract ? 8 : 7] ?? 0),
+          status: Number(tuple[hasTargetContract ? 9 : 8] ?? 0),
+          reviewStorageIdentifier: String(tuple[hasTargetContract ? 10 : 9] ?? ''),
+          createdAt: BigInt(tuple[hasTargetContract ? 11 : 10] as bigint | number | string),
+          reviewedAt: BigInt(tuple[hasTargetContract ? 12 : 11] as bigint | number | string),
+          deployedAt: BigInt(tuple[hasTargetContract ? 13 : 12] as bigint | number | string),
         };
       }
 
@@ -566,6 +715,77 @@ export class ApplicationRegistryClient {
     }
   }
 
+  async canSponsorFor(
+    chainId: number,
+    sponsorAddress: Address,
+    targetContractAddress: Address,
+    ownerAddress: Address,
+    eoaAddress: Address | null = null
+  ): Promise<boolean> {
+    if (!this.contractAddress) {
+      return false;
+    }
+
+    try {
+      const publicClient = this.getPublicClient(chainId);
+      const result = await publicClient.readContract({
+        address: this.contractAddress,
+        abi: APPLICATION_REGISTRY_ABI,
+        functionName: 'canSponsorFor',
+        args: [
+          sponsorAddress,
+          targetContractAddress,
+          ownerAddress,
+          eoaAddress || '0x0000000000000000000000000000000000000000' as Address,
+        ],
+      });
+      return result as boolean;
+    } catch (error) {
+      ErrorHandler.handleError(error, ErrorCode.NETWORK_ERROR);
+      return false;
+    }
+  }
+
+  async getSponsorContractWhitelist(chainId: number, sponsorAddress: Address): Promise<Address[]> {
+    if (!this.contractAddress) {
+      return [];
+    }
+
+    try {
+      const publicClient = this.getPublicClient(chainId);
+      const result = await publicClient.readContract({
+        address: this.contractAddress,
+        abi: APPLICATION_REGISTRY_ABI,
+        functionName: 'getSponsorContractWhitelist',
+        args: [sponsorAddress],
+      });
+      return (result as Address[]) || [];
+    } catch (error) {
+      ErrorHandler.handleError(error, ErrorCode.NETWORK_ERROR);
+      return [];
+    }
+  }
+
+  async getSponsorUserWhitelist(chainId: number, sponsorAddress: Address): Promise<Address[]> {
+    if (!this.contractAddress) {
+      return [];
+    }
+
+    try {
+      const publicClient = this.getPublicClient(chainId);
+      const result = await publicClient.readContract({
+        address: this.contractAddress,
+        abi: APPLICATION_REGISTRY_ABI,
+        functionName: 'getSponsorUserWhitelist',
+        args: [sponsorAddress],
+      });
+      return (result as Address[]) || [];
+    } catch (error) {
+      ErrorHandler.handleError(error, ErrorCode.NETWORK_ERROR);
+      return [];
+    }
+  }
+
   /**
    * 按赞助商查询申请列表（可插拔索引入口）
    *
@@ -588,6 +808,78 @@ export class ApplicationRegistryClient {
       return await this.sponsorApplicationsResolver({ chainId, sponsorAddress });
     } catch (error) {
       logger.warn('listApplicationsBySponsor resolver failed, fallback to empty list', LOG_CONTEXT, {
+        chainId,
+        sponsorAddress,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * 按赞助商从链上 ApplicationRegistry 直接查询申请列表（分页）
+   *
+   * 说明：
+   * - 该能力依赖合约实现 `getSponsorApplicationCount/getSponsorApplicationIds`；
+   * - 若目标链上的合约版本较旧（无该方法），会自动降级为空数组，由上层继续走 resolver/缓存回退。
+   */
+  async listApplicationsBySponsorOnChain(
+    chainId: number,
+    sponsorAddress: Address,
+    pageSize: number = 50
+  ): Promise<ApplicationRegistryRecord[]> {
+    if (!this.contractAddress) {
+      return [];
+    }
+
+    try {
+      const publicClient = this.getPublicClient(chainId);
+      const rawCount = await publicClient.readContract({
+        address: this.contractAddress,
+        abi: APPLICATION_REGISTRY_ABI,
+        functionName: 'getSponsorApplicationCount',
+        args: [sponsorAddress],
+      });
+      const total = Number(rawCount as bigint);
+      if (!Number.isFinite(total) || total <= 0) {
+        return [];
+      }
+
+      const ids: string[] = [];
+      const size = Math.max(1, pageSize);
+      for (let offset = 0; offset < total; offset += size) {
+        const chunk = await publicClient.readContract({
+          address: this.contractAddress,
+          abi: APPLICATION_REGISTRY_ABI,
+          functionName: 'getSponsorApplicationIds',
+          args: [sponsorAddress, BigInt(offset), BigInt(size)],
+        });
+        ids.push(...((chunk as string[]) || []));
+      }
+
+      if (ids.length === 0) {
+        return [];
+      }
+
+      const records = await Promise.all(
+        ids.map(async (applicationId) => {
+          try {
+            return await this.getApplication(chainId, applicationId);
+          } catch (error) {
+            logger.warn('Skip invalid application record while listing by sponsor', LOG_CONTEXT, {
+              chainId,
+              sponsorAddress,
+              applicationId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          }
+        })
+      );
+
+      return records.filter((item): item is ApplicationRegistryRecord => item !== null);
+    } catch (error) {
+      logger.warn('listApplicationsBySponsorOnChain failed, fallback to resolver/cache', LOG_CONTEXT, {
         chainId,
         sponsorAddress,
         error: error instanceof Error ? error.message : String(error),

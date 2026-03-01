@@ -79,7 +79,7 @@ npm run deploy:all
 
 ```bash
 cd smart-services
-./deploy-multichain-validator.sh --check --chain avalanche_fuji
+./scripts/deploy/deploy-multichain-validator.sh --check --chain avalanche_fuji
 ```
 
 ## 项目边界

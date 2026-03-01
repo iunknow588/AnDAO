@@ -13,6 +13,8 @@ import { bundlerClient } from './BundlerClient';
 import { rpcClientManager } from '@/utils/RpcClientManager';
 import { BundlerUnavailableError } from './BundlerClient';
 import { accountManager } from './AccountManager';
+import { applicationRegistryClient } from './ApplicationRegistryClient';
+import { ErrorCode, WalletError } from '@/utils/errors';
 
 /**
  * 降级模式错误
@@ -38,6 +40,13 @@ export class FallbackModeError extends Error {
  */
 import type { UserOperation } from '@/utils/kernel-types';
 
+export interface SponsorPolicyContext {
+  sponsored?: boolean;
+  sponsorId?: string;
+  ownerAddress?: Address;
+  eoaAddress?: Address | null;
+}
+
 export class TransactionRelayer {
   /**
    * 发送单笔交易
@@ -56,12 +65,14 @@ export class TransactionRelayer {
     target: Address,
     data: string,
     ownerPrivateKey: `0x${string}`,
-    value: bigint = BigInt(0)
+    value: bigint = BigInt(0),
+    sponsorPolicyContext?: SponsorPolicyContext
   ): Promise<Hash> {
     const chainConfig = requireChainConfig(chainId, ['rpcUrl']);
     if (!chainConfig.bundlerUrl) {
       throw new BundlerUnavailableError(`Bundler URL not configured for chain: ${chainId}`);
     }
+    await this.enforceSponsorPolicyGate(accountAddress, chainId, [target], sponsorPolicyContext);
 
     // 构造 UserOperation
     const userOp = await this.buildUserOperation(accountAddress, chainId, target, data, value);
@@ -90,7 +101,8 @@ export class TransactionRelayer {
     accountAddress: Address,
     chainId: number,
     transactions: Transaction[],
-    ownerPrivateKey: `0x${string}`
+    ownerPrivateKey: `0x${string}`,
+    sponsorPolicyContext?: SponsorPolicyContext
   ): Promise<Hash> {
     const chainConfig = requireChainConfig(chainId, ['rpcUrl']);
     if (!chainConfig.bundlerUrl) {
@@ -100,6 +112,12 @@ export class TransactionRelayer {
     if (transactions.length === 0) {
       throw new Error('No transactions to batch');
     }
+    await this.enforceSponsorPolicyGate(
+      accountAddress,
+      chainId,
+      transactions.map((tx) => tx.to as Address),
+      sponsorPolicyContext
+    );
 
     // 构造批量交易的 callData
     const { encodeExecuteBatchCallData } = await import('@/utils/kernel');
@@ -472,6 +490,72 @@ export class TransactionRelayer {
     } catch (error) {
       console.warn('Failed to record paymaster usage:', error);
     }
+  }
+
+  private async enforceSponsorPolicyGate(
+    accountAddress: Address,
+    chainId: number,
+    targets: Address[],
+    context?: SponsorPolicyContext
+  ): Promise<void> {
+    const chainConfig = requireChainConfig(chainId);
+    if (context?.sponsored === false) {
+      return;
+    }
+    if (!chainConfig.paymasterAddress) {
+      return;
+    }
+    if (!applicationRegistryClient.isInitialized()) {
+      throw new WalletError(
+        'SPONSOR_POLICY_UNAVAILABLE: ApplicationRegistry contract is not initialized',
+        ErrorCode.CONTRACT_ERROR
+      );
+    }
+
+    const account = await accountManager.getAccountByAddress(accountAddress, chainId);
+    if (!account) {
+      throw new WalletError(
+        `Account not found for sponsor policy gate: ${accountAddress}`,
+        ErrorCode.ACCOUNT_NOT_FOUND
+      );
+    }
+
+    const sponsorAddress = this.resolveSponsorAddress(context?.sponsorId || account.sponsorId);
+    if (!sponsorAddress) {
+      return;
+    }
+
+    const ownerAddress = context?.ownerAddress || account.owner as Address;
+    const eoaAddress =
+      typeof context?.eoaAddress !== 'undefined'
+        ? context.eoaAddress
+        : (account.eoaAddress ? account.eoaAddress as Address : null);
+    for (const target of targets) {
+      const allowed = await applicationRegistryClient.canSponsorFor(
+        chainId,
+        sponsorAddress,
+        target,
+        ownerAddress,
+        eoaAddress
+      );
+      if (!allowed) {
+        throw new WalletError(
+          `SPONSOR_POLICY_BLOCKED: sponsor=${sponsorAddress} target=${target}`,
+          ErrorCode.VALIDATION_ERROR
+        );
+      }
+    }
+  }
+
+  private resolveSponsorAddress(sponsorId?: string): Address | null {
+    if (!sponsorId) {
+      return null;
+    }
+    if (/^0x[a-fA-F0-9]{40}$/.test(sponsorId)) {
+      return sponsorId as Address;
+    }
+    const embeddedAddress = sponsorId.match(/sponsor-(0x[a-fA-F0-9]{40})-/);
+    return embeddedAddress ? embeddedAddress[1] as Address : null;
   }
 }
 

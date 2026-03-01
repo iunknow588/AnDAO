@@ -243,6 +243,8 @@ export const CreateAccountPathBPage: React.FC = () => {
   const [predictedAddress, setPredictedAddress] = useState<Address | null>(null);
   const [gasPaymentMethod, setGasPaymentMethod] = useState<'self' | 'sponsor'>('self');
   const [selectedSponsor, setSelectedSponsor] = useState<string>();
+  const [inviteCode, setInviteCode] = useState('');
+  const [applicationRemark, setApplicationRemark] = useState('');
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [application, setApplication] = useState<Application | null>(null);
   const [applicationStatus, setApplicationStatus] = useState<ApplicationStatus>('pending');
@@ -455,7 +457,13 @@ export const CreateAccountPathBPage: React.FC = () => {
         setStep(5); // 直接完成
       } else {
         // 申请赞助商代付
-        if (!selectedSponsor) {
+        let sponsorId = selectedSponsor;
+        if (!sponsorId && inviteCode) {
+          const sponsor = await sponsorService.selectSponsorByInviteCode(inviteCode);
+          sponsorId = sponsor.id;
+        }
+
+        if (!sponsorId) {
           ErrorHandler.showError('请选择赞助商');
           return;
         }
@@ -464,8 +472,15 @@ export const CreateAccountPathBPage: React.FC = () => {
           accountAddress: predictedAddress,
           ownerAddress,
           eoaAddress,
-          sponsorId: selectedSponsor,
+          sponsorId,
           chainId,
+          password: trimInputValue(password),
+          inviteCode: inviteCode || undefined,
+          details: applicationRemark
+            ? {
+                remark: applicationRemark,
+              }
+            : undefined,
         });
         
         setApplication(app);
@@ -484,13 +499,17 @@ export const CreateAccountPathBPage: React.FC = () => {
   const handleSuccess = () => {
     if (accountAddress || predictedAddress) {
       const finalAddress = accountAddress || predictedAddress!;
+      const deployedBySponsor = gasPaymentMethod === 'sponsor' && applicationStatus === 'deployed';
+      const isDeployed = Boolean(accountAddress) || deployedBySponsor;
       const accountInfo: AccountInfo = {
         address: finalAddress,
         chainId,
         owner: ownerAddress!,
-        status: accountAddress ? 'deployed' : 'predicted',
+        eoaAddress: eoaAddress || undefined,
+        sponsorId: gasPaymentMethod === 'sponsor' ? application?.sponsorId || selectedSponsor : undefined,
+        status: isDeployed ? 'deployed' : 'predicted',
         createdAt: Date.now(),
-        deployedAt: accountAddress ? Date.now() : undefined,
+        deployedAt: isDeployed ? Date.now() : undefined,
       };
       
       // 保存账户信息到AccountManager
@@ -745,28 +764,46 @@ export const CreateAccountPathBPage: React.FC = () => {
             </RadioOption>
           </RadioGroup>
           
-          {gasPaymentMethod === 'sponsor' && sponsors.length > 0 && (
+          {gasPaymentMethod === 'sponsor' && (
             <>
-              <div style={{ marginTop: '24px', marginBottom: '16px' }}>
-                <strong>选择赞助商：</strong>
-              </div>
-              {sponsors.map(sponsor => (
-                <Card
-                  key={sponsor.id}
-                  style={{
-                    cursor: 'pointer',
-                    marginBottom: '16px',
-                    border: selectedSponsor === sponsor.id ? '2px solid #4c6ef5' : '2px solid transparent',
-                  }}
-                  onClick={() => setSelectedSponsor(sponsor.id)}
-                >
-                  <h3>{sponsor.name}</h3>
-                  <p style={{ fontSize: '14px', color: '#666' }}>{sponsor.description}</p>
-                  <div style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
-                    通过率: {sponsor.approvalRate}% | 平均等待: {sponsor.avgWaitTime}分钟
+              <Input
+                label="邀请码（可选）"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                placeholder="输入邀请码可自动匹配赞助商"
+              />
+
+              <Input
+                label="备注（可选，供赞助商审核）"
+                value={applicationRemark}
+                onChange={(e) => setApplicationRemark(e.target.value)}
+                placeholder="可填写邀请码来源、申请说明等"
+              />
+
+              {sponsors.length > 0 && (
+                <>
+                  <div style={{ marginTop: '24px', marginBottom: '16px' }}>
+                    <strong>选择赞助商：</strong>
                   </div>
-                </Card>
-              ))}
+                  {sponsors.map(sponsor => (
+                    <Card
+                      key={sponsor.id}
+                      style={{
+                        cursor: 'pointer',
+                        marginBottom: '16px',
+                        border: selectedSponsor === sponsor.id ? '2px solid #4c6ef5' : '2px solid transparent',
+                      }}
+                      onClick={() => setSelectedSponsor(sponsor.id)}
+                    >
+                      <h3>{sponsor.name}</h3>
+                      <p style={{ fontSize: '14px', color: '#666' }}>{sponsor.description}</p>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
+                        通过率: {sponsor.approvalRate}% | 平均等待: {sponsor.avgWaitTime}分钟
+                      </div>
+                    </Card>
+                  ))}
+                </>
+              )}
             </>
           )}
           
@@ -776,7 +813,7 @@ export const CreateAccountPathBPage: React.FC = () => {
             </Button>
             <Button
               onClick={handleCreateAccount}
-              disabled={isLoading || (gasPaymentMethod === 'sponsor' && !selectedSponsor)}
+              disabled={isLoading || (gasPaymentMethod === 'sponsor' && !selectedSponsor && !inviteCode)}
             >
               {isLoading ? <LoadingSpinner /> : '创建账户'}
             </Button>

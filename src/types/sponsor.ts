@@ -103,6 +103,19 @@ export interface SponsorRules {
    * IP限制（可选）
    */
   ipRestriction?: string[];
+
+  /**
+   * 允许赞助的业务合约地址白名单（可选）
+   * 为空或未配置表示不限制合约。
+   */
+  allowedContractAddresses?: Address[];
+
+  /**
+   * 允许赞助的用户地址白名单（可选）
+   * 默认按 ownerAddress 校验；若存在 eoaAddress 也会参与匹配。
+   * 为空或未配置表示不限制用户。
+   */
+  userWhitelist?: Address[];
 }
 
 /**
@@ -138,11 +151,34 @@ export interface ApplicationParams {
    * 邀请码（可选）
    */
   inviteCode?: string;
+
+  /**
+   * 目标业务合约地址（可选）
+   * 当赞助商配置了合约白名单时，该字段为必填。
+   */
+  targetContractAddress?: Address;
   
   /**
    * 申请详情（可选，用于存储）
    */
   details?: Record<string, unknown>;
+
+  /**
+   * 申请创建时用于解锁签名私钥的密码（可选）
+   *
+   * 用途：
+   * - 当启用严格上链模式时，创建申请阶段会立即尝试写入 ApplicationRegistry；
+   * - 若未提供且会话中也无可用私钥，严格模式下会失败并回滚本地缓存。
+   */
+  password?: string;
+
+  /**
+   * 是否强制在创建申请时立即上链（可选）
+   *
+   * 优先级：
+   * - 显式传入 > 环境变量 > 服务默认策略
+   */
+  strictOnChain?: boolean;
 }
 
 /**
@@ -215,6 +251,11 @@ export interface Application {
    * 邀请码（可选）
    */
   inviteCode?: string;
+
+  /**
+   * 目标业务合约地址（可选）
+   */
+  targetContractAddress?: Address;
   
   /**
    * 存储标识符（CID/URI等）
@@ -235,6 +276,18 @@ export interface Application {
    * 拒绝原因（可选）
    */
   rejectReason?: string;
+
+  /**
+   * 申请详情（可选）
+   *
+   * 可用于携带邀请码关联备注、业务上下文等扩展信息。
+   */
+  details?: Record<string, unknown>;
+
+  /**
+   * 审核备注（可选）
+   */
+  reviewNote?: string;
 }
 
 /**

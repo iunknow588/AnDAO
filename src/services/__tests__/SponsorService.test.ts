@@ -248,4 +248,114 @@ describe('SponsorService', () => {
       expect(retrievedConfig?.type).toBe(StorageProviderType.CUSTOM);
     });
   });
+
+  describe('sponsor policy enforcement', () => {
+    it('should reject application when target contract is not in sponsor allowlist', async () => {
+      const sponsorId = await sponsorService.registerOnChain({
+        sponsorAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Address,
+        gasAccountAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as Address,
+        sponsorInfo: { name: 'Policy Sponsor' },
+        rules: {
+          dailyLimit: 10,
+          maxGasPerAccount: BigInt('1000000000000000'),
+          autoApprove: false,
+          allowedContractAddresses: ['0x1111111111111111111111111111111111111111' as Address],
+        },
+      });
+
+      await expect(
+        sponsorService.createApplication({
+          accountAddress: '0x1234567890123456789012345678901234567890' as Address,
+          ownerAddress: '0x2345678901234567890123456789012345678901' as Address,
+          sponsorId,
+          chainId: 5001,
+          targetContractAddress: '0x2222222222222222222222222222222222222222' as Address,
+        })
+      ).rejects.toThrow(/SPONSOR_CONTRACT_NOT_ALLOWED/);
+    });
+
+    it('should reject application when owner is not in sponsor user whitelist', async () => {
+      const sponsorId = await sponsorService.registerOnChain({
+        sponsorAddress: '0xcccccccccccccccccccccccccccccccccccccccc' as Address,
+        gasAccountAddress: '0xdddddddddddddddddddddddddddddddddddddddd' as Address,
+        sponsorInfo: { name: 'Whitelist Sponsor' },
+        rules: {
+          dailyLimit: 10,
+          maxGasPerAccount: BigInt('1000000000000000'),
+          autoApprove: false,
+          userWhitelist: ['0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as Address],
+        },
+      });
+
+      await expect(
+        sponsorService.createApplication({
+          accountAddress: '0x1234567890123456789012345678901234567890' as Address,
+          ownerAddress: '0x2345678901234567890123456789012345678901' as Address,
+          sponsorId,
+          chainId: 5001,
+        })
+      ).rejects.toThrow(/SPONSOR_USER_NOT_WHITELISTED/);
+    });
+
+    it('should pass when contract and user are both allowed', async () => {
+      const allowedOwner = '0x9999999999999999999999999999999999999999' as Address;
+      const allowedContract = '0x8888888888888888888888888888888888888888' as Address;
+      const sponsorId = await sponsorService.registerOnChain({
+        sponsorAddress: '0x7777777777777777777777777777777777777777' as Address,
+        gasAccountAddress: '0x6666666666666666666666666666666666666666' as Address,
+        sponsorInfo: { name: 'Strict Sponsor' },
+        rules: {
+          dailyLimit: 10,
+          maxGasPerAccount: BigInt('1000000000000000'),
+          autoApprove: false,
+          allowedContractAddresses: [allowedContract],
+          userWhitelist: [allowedOwner],
+        },
+      });
+
+      const app = await sponsorService.createApplication({
+        accountAddress: '0x1234567890123456789012345678901234567890' as Address,
+        ownerAddress: allowedOwner,
+        sponsorId,
+        chainId: 5001,
+        targetContractAddress: allowedContract,
+      });
+
+      expect(app.status).toBe('pending');
+      expect(app.targetContractAddress).toBe(allowedContract);
+    });
+
+    it('should re-check policy at review stage', async () => {
+      const owner = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1' as Address;
+      const sponsorId = await sponsorService.registerOnChain({
+        sponsorAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2' as Address,
+        gasAccountAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3' as Address,
+        sponsorInfo: { name: 'Mutable Policy Sponsor' },
+        rules: {
+          dailyLimit: 10,
+          maxGasPerAccount: BigInt('1000000000000000'),
+          autoApprove: false,
+        },
+      });
+
+      const app = await sponsorService.createApplication({
+        accountAddress: '0x1234567890123456789012345678901234567890' as Address,
+        ownerAddress: owner,
+        sponsorId,
+        chainId: 5001,
+      });
+
+      const internalSponsors = (sponsorService as unknown as { sponsors: Map<string, any> }).sponsors;
+      const sponsor = internalSponsors.get(sponsorId);
+      sponsor.rules = {
+        ...(sponsor.rules || {}),
+        userWhitelist: ['0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9' as Address],
+      };
+      internalSponsors.set(sponsorId, sponsor);
+
+      await expect(
+        sponsorService.reviewApplication(sponsorId, app.id, 'approve')
+      ).rejects.toThrow(/SPONSOR_USER_NOT_WHITELISTED/);
+    });
+  });
 });

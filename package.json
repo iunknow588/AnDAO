@@ -17,9 +17,8 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "test:accounts": "tsx scripts/functional/generate-test-accounts.ts",
-    "test:accounts:simple": "tsx scripts/functional/generate-test-accounts-simple.ts",
     "testnet:verify": "tsx scripts/management/verification/testnet-verification.ts",
+    "sponsor:e2e": "node --import tsx scripts/management/verification/sponsor-policy-e2e.ts",
     "pwa:verify": "tsx scripts/management/verification/pwa-verification.ts",
     "mock:indexer": "tsx scripts/functional/mock-application-indexer.ts",
     "bridge:check": "node --import tsx scripts/management/verification/bridge-connectivity-check.ts",
@@ -69,5 +68,6 @@
     "vite": "^5.0.5",
     "vite-plugin-pwa": "^0.17.4",
     "vitest": "^1.0.0"
-  }
+  },
+  "packageManager": "pnpm@10.19.0+sha512.c9fc7236e92adf5c8af42fd5bf1612df99c2ceb62f27047032f4720b33f8eacdde311865e91c411f2774f618d82f320808ecb51718bfa82c060c4ba7c76a32b8"
 }

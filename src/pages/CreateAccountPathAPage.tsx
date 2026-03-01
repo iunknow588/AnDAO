@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import { accountManager } from '@/services/AccountManager';
 import { keyManagerService } from '@/services/KeyManagerService';
 import { sponsorService } from '@/services/SponsorService';
+import { guardianService } from '@/services/GuardianService';
 import { Sponsor, Application, ApplicationStatus } from '@/types/sponsor';
 import { UserType, ExtendedAccountInfo, AccountInfo } from '@/types';
 import { Address } from 'viem';
@@ -197,6 +198,7 @@ export const CreateAccountPathAPage: React.FC = () => {
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [selectedSponsor, setSelectedSponsor] = useState<string>();
   const [inviteCode, setInviteCode] = useState('');
+  const [applicationRemark, setApplicationRemark] = useState('');
   const [application, setApplication] = useState<Application | null>(null);
   const [applicationStatus, setApplicationStatus] = useState<ApplicationStatus>('pending');
   const [isLoading, setIsLoading] = useState(false);
@@ -412,7 +414,13 @@ export const CreateAccountPathAPage: React.FC = () => {
         ownerAddress,
         sponsorId,
         chainId,
+        password: trimInputValue(password),
         inviteCode: inviteCode || undefined,
+        details: applicationRemark
+          ? {
+              remark: applicationRemark,
+            }
+          : undefined,
       });
       
       setApplication(app);
@@ -427,29 +435,54 @@ export const CreateAccountPathAPage: React.FC = () => {
   /**
    * 处理创建成功
    */
-  const handleSuccess = () => {
+  const handleSuccess = async () => {
     // 保存账户信息到AccountStore
     if (predictedAddress && ownerAddress) {
-      const chainId = accountStore.currentChainId;
-      const accountInfo: ExtendedAccountInfo = {
-        address: predictedAddress,
-        chainId,
-        owner: ownerAddress,
-        userType: UserType.SIMPLE,
-        status: 'deployed',
-        createdAt: Date.now(),
-        deployedAt: Date.now(),
-        sponsorId: application?.sponsorId,
-      };
-      
-      // 保存账户信息到AccountManager
-      // ExtendedAccountInfo 继承自 AccountInfo，可以直接传递
-      accountManager.importAccount(accountInfo as AccountInfo).catch(error => {
+      try {
+        const chainId = accountStore.currentChainId;
+        const accountInfo: ExtendedAccountInfo = {
+          address: predictedAddress,
+          chainId,
+          owner: ownerAddress,
+          userType: UserType.SIMPLE,
+          status: 'deployed',
+          createdAt: Date.now(),
+          deployedAt: Date.now(),
+          sponsorId: application?.sponsorId,
+        };
+        
+        // 1) 先保存账户信息，确保后续流程可基于该账户继续
+        await accountManager.importAccount(accountInfo as AccountInfo);
+
+        // 2) 路径A初始化守护人：默认将赞助商地址作为首个守护人
+        try {
+          const sponsorGuardianAddress = application?.sponsorAddress;
+          if (sponsorGuardianAddress) {
+            const ownerPrivateKey = await keyManagerService.getPrivateKey(ownerAddress, trimInputValue(password));
+            if (ownerPrivateKey) {
+              await guardianService.addGuardian(
+                predictedAddress,
+                chainId,
+                sponsorGuardianAddress,
+                ownerPrivateKey
+              );
+            } else {
+              ErrorHandler.showError('账户已创建成功，但无法解锁私钥初始化守护人，请稍后在守护人页面手动添加。');
+            }
+          } else {
+            ErrorHandler.showError('账户已创建成功，但未解析到赞助商守护人地址，请稍后在守护人页面手动添加。');
+          }
+        } catch (guardianError) {
+          ErrorHandler.showError(
+            `账户已创建成功，但守护人初始化失败：${guardianError instanceof Error ? guardianError.message : String(guardianError)}`
+          );
+        }
+
+        // 导航到主页面
+        navigate('/assets');
+      } catch (error) {
         ErrorHandler.handleAndShow(error);
-      });
-      
-      // 导航到主页面
-      navigate('/assets');
+      }
     }
   };
   
@@ -612,6 +645,13 @@ export const CreateAccountPathAPage: React.FC = () => {
             value={inviteCode}
             onChange={(e) => setInviteCode(e.target.value)}
             placeholder="输入邀请码"
+          />
+
+          <Input
+            label="备注（可选，供赞助商审核）"
+            value={applicationRemark}
+            onChange={(e) => setApplicationRemark(e.target.value)}
+            placeholder="可填写邀请码来源、申请说明等"
           />
           
           <div style={{ marginTop: '24px', marginBottom: '16px' }}>

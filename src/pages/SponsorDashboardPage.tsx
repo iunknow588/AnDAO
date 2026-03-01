@@ -15,9 +15,11 @@ import { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
 import { observer } from 'mobx-react-lite';
+import type { Address } from 'viem';
 import { sponsorService } from '@/services/SponsorService';
 import { Application, ApplicationStatus } from '@/types/sponsor';
 import type { SponsorApplicationsDataSource } from '@/services/SponsorService';
+import { UserType } from '@/types';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { ErrorHandler } from '@/utils/errors';
@@ -122,13 +124,17 @@ const DataSourceBadge = styled.span<{ $source: SponsorApplicationsDataSource }>`
   font-size: 12px;
   font-weight: 600;
   background: ${props =>
-    props.$source === 'indexer'
+    props.$source === 'chain-primary'
+      ? '#d1ecf1'
+      : props.$source === 'indexer'
       ? '#d4edda'
       : props.$source === 'indexer-with-fallback' || props.$source === 'chain-fallback'
       ? '#fff3cd'
       : '#e2e3e5'};
   color: ${props =>
-    props.$source === 'indexer'
+    props.$source === 'chain-primary'
+      ? '#0c5460'
+      : props.$source === 'indexer'
       ? '#155724'
       : props.$source === 'indexer-with-fallback' || props.$source === 'chain-fallback'
       ? '#856404'
@@ -298,7 +304,7 @@ const TextArea = styled.textarea`
   }
 `;
 
-type TabType = 'applications' | 'channels' | 'stats';
+type TabType = 'applications' | 'channels' | 'whitelist' | 'stats';
 
 export const SponsorDashboardPage = observer(() => {
   const navigate = useNavigate();
@@ -318,6 +324,14 @@ export const SponsorDashboardPage = observer(() => {
     rejected: 0,
     deployed: 0,
   });
+  const [contractWhitelistInput, setContractWhitelistInput] = useState('');
+  const [userWhitelistInput, setUserWhitelistInput] = useState('');
+  const [whitelistLoading, setWhitelistLoading] = useState(false);
+  const [contractWhitelist, setContractWhitelist] = useState<string[]>([]);
+  const [userWhitelist, setUserWhitelist] = useState<string[]>([]);
+  const isSponsorAccount =
+    accountStore.currentAccount?.userType === UserType.SPONSOR ||
+    Boolean(accountStore.currentAccount?.sponsorId);
 
   /**
    * 加载申请列表
@@ -358,10 +372,13 @@ export const SponsorDashboardPage = observer(() => {
   };
 
   useEffect(() => {
+    if (!isSponsorAccount) {
+      return;
+    }
     loadApplications();
     // 仅在账户切换时刷新申请列表
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountStore.currentAccount]);
+  }, [accountStore.currentAccount, isSponsorAccount]);
 
   /**
    * 处理审核申请
@@ -369,7 +386,9 @@ export const SponsorDashboardPage = observer(() => {
   const handleReview = async (application: Application, action: 'approve' | 'reject') => {
     setSelectedApplication(application);
     setReviewAction(action);
-    setReviewNote('');
+    const remark =
+      typeof application.details?.remark === 'string' ? application.details.remark : '';
+    setReviewNote(remark);
     setShowReviewModal(true);
   };
 
@@ -383,11 +402,18 @@ export const SponsorDashboardPage = observer(() => {
 
     setLoading(true);
     try {
+      const password = await requestPasswordFromUI(accountStore.currentAccountAddress || '');
+      const passwordValue = password ? trimInputValue(password) : '';
+      if (!passwordValue) {
+        return;
+      }
+
       await sponsorService.reviewApplication(
         selectedApplication.sponsorId,
         selectedApplication.id,
         reviewAction,
-        reviewNote || undefined
+        reviewNote || undefined,
+        passwordValue
       );
       
       setShowReviewModal(false);
@@ -445,6 +471,118 @@ export const SponsorDashboardPage = observer(() => {
     }
   };
 
+  const parseAddressList = (input: string): Address[] => {
+    const candidates = input
+      .split(/[\n,;\s]+/)
+      .map((item) => trimInputValue(item))
+      .filter(Boolean);
+    if (candidates.length === 0) {
+      throw new Error('请输入至少一个地址');
+    }
+    const invalid = candidates.find((address) => !/^0x[a-fA-F0-9]{40}$/.test(address));
+    if (invalid) {
+      throw new Error(`地址格式不正确: ${invalid}`);
+    }
+    return candidates as Address[];
+  };
+
+  const resolveSponsorContext = (): { sponsorId: string; chainId: number } => {
+    if (!accountStore.currentAccount) {
+      throw new Error('当前账户不存在');
+    }
+    const sponsorId =
+      accountStore.currentAccount.sponsorId ||
+      accountStore.currentAccount.eoaAddress ||
+      accountStore.currentAccount.owner ||
+      accountStore.currentAccount.address;
+    return {
+      sponsorId,
+      chainId: accountStore.currentAccount.chainId,
+    };
+  };
+
+  const handleUpdateContractWhitelist = async (allowed: boolean) => {
+    setWhitelistLoading(true);
+    try {
+      const { sponsorId, chainId } = resolveSponsorContext();
+      const addresses = parseAddressList(contractWhitelistInput);
+      const password = await requestPasswordFromUI(accountStore.currentAccountAddress || '');
+      const passwordValue = password ? trimInputValue(password) : '';
+      if (!passwordValue) {
+        return;
+      }
+      const txHash = await sponsorService.updateContractWhitelist(
+        sponsorId,
+        chainId,
+        addresses,
+        allowed,
+        passwordValue
+      );
+      ErrorHandler.showSuccess(
+        `${allowed ? '合约白名单添加' : '合约白名单移除'}成功，交易哈希：${txHash}`
+      );
+      setContractWhitelistInput('');
+      const refreshed = await sponsorService.syncWhitelistFromChain(sponsorId, chainId);
+      setContractWhitelist(refreshed.contractWhitelist);
+    } catch (error) {
+      ErrorHandler.handleAndShow(error);
+    } finally {
+      setWhitelistLoading(false);
+    }
+  };
+
+  const handleUpdateUserWhitelist = async (allowed: boolean) => {
+    setWhitelistLoading(true);
+    try {
+      const { sponsorId, chainId } = resolveSponsorContext();
+      const addresses = parseAddressList(userWhitelistInput);
+      const password = await requestPasswordFromUI(accountStore.currentAccountAddress || '');
+      const passwordValue = password ? trimInputValue(password) : '';
+      if (!passwordValue) {
+        return;
+      }
+      const txHash = await sponsorService.updateUserWhitelist(
+        sponsorId,
+        chainId,
+        addresses,
+        allowed,
+        passwordValue
+      );
+      ErrorHandler.showSuccess(
+        `${allowed ? '用户白名单添加' : '用户白名单移除'}成功，交易哈希：${txHash}`
+      );
+      setUserWhitelistInput('');
+      const refreshed = await sponsorService.syncWhitelistFromChain(sponsorId, chainId);
+      setUserWhitelist(refreshed.userWhitelist);
+    } catch (error) {
+      ErrorHandler.handleAndShow(error);
+    } finally {
+      setWhitelistLoading(false);
+    }
+  };
+
+  const loadWhitelistFromChain = async () => {
+    setWhitelistLoading(true);
+    try {
+      const { sponsorId, chainId } = resolveSponsorContext();
+      const next = await sponsorService.syncWhitelistFromChain(sponsorId, chainId);
+      setContractWhitelist(next.contractWhitelist);
+      setUserWhitelist(next.userWhitelist);
+    } catch (error) {
+      ErrorHandler.handleAndShow(error);
+    } finally {
+      setWhitelistLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'whitelist' || !isSponsorAccount || !accountStore.currentAccount) {
+      return;
+    }
+    void loadWhitelistFromChain();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, isSponsorAccount, accountStore.currentAccount]);
+
   if (!accountStore.currentAccount) {
     return (
       <Container>
@@ -456,12 +594,24 @@ export const SponsorDashboardPage = observer(() => {
     );
   }
 
+  if (!isSponsorAccount) {
+    return (
+      <Container>
+        <Card>
+          <p>当前账户不是赞助商账户，无法访问赞助商仪表板。</p>
+          <Button onClick={() => navigate('/path-conversion')}>去开通赞助商</Button>
+        </Card>
+      </Container>
+    );
+  }
+
   return (
     <Container>
       <Header>
         <Title>赞助商仪表板</Title>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <DataSourceBadge $source={dataSource}>
+            {dataSource === 'chain-primary' && '数据源：链上合约（主）'}
             {dataSource === 'indexer' && '数据源：索引服务'}
             {dataSource === 'indexer-with-fallback' && '数据源：索引服务 + 链上补齐'}
             {dataSource === 'chain-fallback' && '数据源：链上逐条查询'}
@@ -497,6 +647,9 @@ export const SponsorDashboardPage = observer(() => {
         <Tab $active={activeTab === 'channels'} onClick={() => setActiveTab('channels')}>
           渠道管理
         </Tab>
+        <Tab $active={activeTab === 'whitelist'} onClick={() => setActiveTab('whitelist')}>
+          白名单管理
+        </Tab>
         <Tab $active={activeTab === 'stats'} onClick={() => setActiveTab('stats')}>
           统计数据
         </Tab>
@@ -531,6 +684,11 @@ export const SponsorDashboardPage = observer(() => {
                       申请时间: {new Date(app.createdAt).toLocaleString()}
                     </div>
                   )}
+                  {typeof app.details?.remark === 'string' && app.details.remark.trim() && (
+                    <div style={{ fontSize: '12px', color: '#333', marginTop: '8px' }}>
+                      申请备注: {app.details.remark}
+                    </div>
+                  )}
                 </ApplicationInfo>
                 <ActionButtons>
                   {app.status === 'pending' && (
@@ -554,6 +712,70 @@ export const SponsorDashboardPage = observer(() => {
       {activeTab === 'channels' && (
         <Card>
           <p>渠道管理功能开发中...</p>
+        </Card>
+      )}
+
+      {activeTab === 'whitelist' && (
+        <Card>
+          <h2>白名单管理（链上）</h2>
+          <ActionButtons>
+            <Button disabled={whitelistLoading} onClick={loadWhitelistFromChain}>
+              刷新链上白名单
+            </Button>
+          </ActionButtons>
+          <FormGroup>
+            <Label>当前合约白名单（链上）</Label>
+            <div style={{ fontSize: '13px', color: '#333', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+              {contractWhitelist.length === 0 ? '空（无约束）' : contractWhitelist.join('\n')}
+            </div>
+          </FormGroup>
+          <FormGroup>
+            <Label>当前用户白名单（链上）</Label>
+            <div style={{ fontSize: '13px', color: '#333', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+              {userWhitelist.length === 0 ? '空（无约束）' : userWhitelist.join('\n')}
+            </div>
+          </FormGroup>
+          <FormGroup>
+            <Label>合约白名单地址（每行一个或逗号分隔）</Label>
+            <TextArea
+              value={contractWhitelistInput}
+              onChange={(e) => setContractWhitelistInput(e.target.value)}
+              placeholder="0x..."
+            />
+            <ActionButtons>
+              <Button disabled={whitelistLoading} onClick={() => handleUpdateContractWhitelist(true)}>
+                添加合约白名单
+              </Button>
+              <Button
+                disabled={whitelistLoading}
+                onClick={() => handleUpdateContractWhitelist(false)}
+                style={{ background: '#dc3545' }}
+              >
+                移除合约白名单
+              </Button>
+            </ActionButtons>
+          </FormGroup>
+
+          <FormGroup>
+            <Label>用户白名单地址（每行一个或逗号分隔）</Label>
+            <TextArea
+              value={userWhitelistInput}
+              onChange={(e) => setUserWhitelistInput(e.target.value)}
+              placeholder="0x..."
+            />
+            <ActionButtons>
+              <Button disabled={whitelistLoading} onClick={() => handleUpdateUserWhitelist(true)}>
+                添加用户白名单
+              </Button>
+              <Button
+                disabled={whitelistLoading}
+                onClick={() => handleUpdateUserWhitelist(false)}
+                style={{ background: '#dc3545' }}
+              >
+                移除用户白名单
+              </Button>
+            </ActionButtons>
+          </FormGroup>
         </Card>
       )}
 

@@ -10,15 +10,12 @@
 smart-services/
 ├── contracts/          # 智能合约源码
 │   └── src/           # Kernel 合约源码（本地维护）
-├── scripts/           # 部署和测试脚本
-│   ├── Deploy.s.sol   # 主部署脚本（CREATE2_PROXY）
-│   ├── DeployAllChains.s.sol  # 多链批量部署脚本（推荐）
-│   ├── DeployWithCREATE2.s.sol  # CREATE2_PROXY 部署脚本
-│   └── DeployApplicationRegistry.s.sol  # ApplicationRegistry 部署脚本
-├── docs/              # 文档目录
-│   ├── 部署指南.md      # 部署指南文档
-│   ├── 多链部署地址记录.md  # 多链部署地址记录
-│   └── ...            # 其他技术文档
+├── scripts/           # 部署脚本目录
+│   ├── *.s.sol        # Foundry Solidity 部署脚本
+│   └── deploy/        # Shell 部署脚本
+│       ├── deploy-multichain-validator.sh
+│       ├── deploy-avalanche-fuji-after-faucet.sh
+│       └── deploy_multichain_validator.md
 ├── artifacts/         # 编译产物（可选）
 ├── types/             # TypeScript 类型定义（可选）
 ├── package.json       # 合约项目依赖
@@ -66,7 +63,7 @@ npx typechain --target ethers-v6 --out-dir types './artifacts/**/*.json'
 
 #### 3. 部署合约
 
-详细部署说明请参考 [部署指南](./docs/部署指南.md)
+详细部署说明请参考 `./scripts/deploy/deploy_multichain_validator.md`
 
 ```bash
 # 使用 Foundry 部署（推荐）
@@ -94,9 +91,8 @@ npx hardhat run scripts/deploy.ts --network mantle_sepolia
 
 ## 部署文档
 
-- [部署指南](./docs/部署指南.md) - 详细的智能合约部署说明
-- [多链部署地址记录](./docs/多链部署地址记录.md) - 各链部署地址记录
-- [文档索引](./docs/文档索引.md) - 完整文档索引
+- 本地部署说明：`./scripts/deploy/deploy_multichain_validator.md`
+- 中央文档目录：`/home/lc/luckee_dao/works-docs/道安钱包项目/smart-services`
 
 ## 相关说明
 

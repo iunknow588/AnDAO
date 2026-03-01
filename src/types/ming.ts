@@ -38,6 +38,21 @@ export interface MingContractTarget {
   network?: string;
 }
 
+export interface MingSponsorPolicyContext {
+  sponsored?: boolean;
+  sponsorId?: string;
+  ownerAddress?: string;
+  eoaAddress?: string | null;
+}
+
+export type MingGasPolicyType = 'self_pay' | 'sponsored';
+
+export interface MingGasPolicy {
+  primary: MingGasPolicyType;
+  fallback?: MingGasPolicyType;
+  sponsorIdOrInviteCode?: string;
+}
+
 export interface MingMintParams {
   to: string;
   tokenURI: string;
@@ -49,6 +64,7 @@ export interface MingMintParams {
 export interface MingMintNFTRequestPayload {
   protocolVersion: string;
   timing: MingTiming;
+  sponsorPolicyContext?: MingSponsorPolicyContext;
   ipfs?: {
     imageHash?: string;
     metadataHash?: string;
@@ -88,12 +104,26 @@ export interface MingGetActiveAccountRequestPayload {
 
 export interface MingReleaseConnectionRequestPayload {
   protocolVersion: string;
+  sponsorPolicyContext?: MingSponsorPolicyContext;
   contract: MingContractTarget;
   params: {
     tokenId: string;
     releasedTokenURI: string;
     removePrivateData?: boolean;
   };
+}
+
+export interface MingSendTransactionRequestPayload {
+  protocolVersion: string;
+  chainId: number;
+  chainFamily?: MingChainFamily;
+  network?: string;
+  to: string;
+  data: string;
+  value?: string;
+  gasPolicy: MingGasPolicy;
+  clientRequestId?: string;
+  sponsorPolicyContext?: MingSponsorPolicyContext;
 }
 
 export interface MingChainExecutionResult {

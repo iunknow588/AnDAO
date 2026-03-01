@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnDaoWalletProvider } from '../ProviderAdapter';
 import { SupportedChain } from '@/types';
 
+const mockGetPublicClient = vi.fn();
+
 vi.mock('@/stores/InteractionStore', () => ({
   interactionStore: {
     addRequest: vi.fn(),
@@ -19,9 +21,18 @@ vi.mock('@/services/KeyManagerService', () => ({
   },
 }));
 
+vi.mock('@/utils/RpcClientManager', () => ({
+  rpcClientManager: {
+    getPublicClient: (...args: unknown[]) => mockGetPublicClient(...args),
+  },
+}));
+
 describe('AnDaoWalletProvider chain selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetPublicClient.mockReturnValue({
+      getBalance: vi.fn().mockResolvedValue(1000000000000000000n),
+    });
   });
 
   function setup() {
@@ -59,6 +70,26 @@ describe('AnDaoWalletProvider chain selection', () => {
 
     const chainId = await provider.request({ method: 'eth_chainId' });
     expect(chainId).toBe('0x138b'); // 5003
+  });
+
+  it('eth_getBalance 应返回十六进制余额', async () => {
+    const { provider, testAccount } = setup();
+    const mockedClient = {
+      getBalance: vi.fn().mockResolvedValue(16n),
+    };
+    mockGetPublicClient.mockReturnValueOnce(mockedClient);
+
+    const balance = await provider.request({
+      method: 'eth_getBalance',
+      params: [testAccount.address, 'latest'],
+    });
+
+    expect(mockGetPublicClient).toHaveBeenCalledWith(5003);
+    expect(mockedClient.getBalance).toHaveBeenCalledWith({
+      address: testAccount.address,
+      blockTag: 'latest',
+    });
+    expect(balance).toBe('0x10');
   });
 
   it('eth_accounts 应按 currentChainId 查询账户', async () => {
@@ -105,7 +136,9 @@ describe('AnDaoWalletProvider chain selection', () => {
       5003,
       to,
       data,
-      '0x1234567890123456789012345678901234567890123456789012345678901234'
+      '0x1234567890123456789012345678901234567890123456789012345678901234',
+      BigInt(0),
+      undefined
     );
     expect(txHash).toBe('0xmockedtxhash');
   });

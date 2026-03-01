@@ -9,6 +9,7 @@ import styled from 'styled-components';
 import { observer } from 'mobx-react-lite';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '@/services/AuthService';
+import { validatePasswordPair } from '@/utils/pathFlowValidation';
 
 const Container = styled.div`
   max-width: 600px;
@@ -86,6 +87,17 @@ const ErrorMessage = styled.div`
   text-align: center;
 `;
 
+const SecurityNotice = styled.div`
+  border: 1px solid #ffd8a8;
+  background: #fff4e6;
+  color: #8f4e00;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+`;
+
 export const UnlockWalletPage = observer(() => {
   const navigate = useNavigate();
   const [password, setPassword] = useState('');
@@ -119,8 +131,9 @@ export const UnlockWalletPage = observer(() => {
         setError('请确认密码');
         return;
       }
-      if (password !== confirmPassword) {
-        setError('两次输入的密码不一致');
+      const passwordError = validatePasswordPair(password, confirmPassword);
+      if (passwordError) {
+        setError(passwordError);
         return;
       }
     }
@@ -160,6 +173,11 @@ export const UnlockWalletPage = observer(() => {
             ? '请设置您的钱包密码（用于加密存储私钥）'
             : '请输入您的密码以解锁钱包'}
         </Subtitle>
+        {isFirstLogin && (
+          <SecurityNotice>
+            重要提醒：请妥善保管密码与私钥。不要截图、不要通过聊天工具发送、不要透露给任何人。
+          </SecurityNotice>
+        )}
 
         <form onSubmit={handleUnlock}>
           <Input
