@@ -6,7 +6,10 @@ coverage/
 .nyc_output/
 .git/
 .env.local
+.env
 .env.*.local
+env.local
+smart-services/
 .vscode/
 .idea/
 *.log
