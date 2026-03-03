@@ -613,9 +613,9 @@ export const SponsorDashboardPage = observer(() => {
           <DataSourceBadge $source={dataSource}>
             {dataSource === 'chain-primary' && '数据源：链上合约（主）'}
             {dataSource === 'indexer' && '数据源：索引服务'}
-            {dataSource === 'indexer-with-fallback' && '数据源：索引服务 + 链上状态补齐'}
+            {dataSource === 'indexer-with-fallback' && '数据源：索引服务 + 链上补齐'}
             {dataSource === 'chain-fallback' && '数据源：本地缓存 + 链上逐条校验'}
-            {dataSource === 'cache-only' && '数据源：本地缓存（未完成链上校验）'}
+            {dataSource === 'cache-only' && '数据源：本地缓存（本次未做链上校验）'}
           </DataSourceBadge>
           <Button onClick={() => navigate('/assets')}>返回资产管理</Button>
         </div>

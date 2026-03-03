@@ -145,6 +145,26 @@ describe('WalletError', () => {
       const message = error.toUserMessage();
       expect(message).toContain('权限与链绑定');
     });
+
+    it('应该将中文缺失配置错误映射为环境变量修复提示', () => {
+      const error = new WalletError(
+        'MultiChainValidator 地址 未配置（当前链：Avalanche Fuji，Chain ID: 43113）。请检查环境变量 VITE_AVALANCHE_FUJI_MULTI_CHAIN_VALIDATOR_ADDRESS',
+        ErrorCode.VALIDATION_ERROR
+      );
+      const message = error.toUserMessage();
+      expect(message).toContain('当前链关键配置缺失');
+      expect(message).toContain('VITE_AVALANCHE_FUJI_MULTI_CHAIN_VALIDATOR_ADDRESS');
+    });
+
+    it('应该将英文缺失配置错误映射为环境变量修复提示', () => {
+      const error = new WalletError(
+        'MultiChainValidator address not configured for chain: 43113. Please configure VITE_AVALANCHE_FUJI_MULTI_CHAIN_VALIDATOR_ADDRESS',
+        ErrorCode.VALIDATION_ERROR
+      );
+      const message = error.toUserMessage();
+      expect(message).toContain('当前链关键配置缺失');
+      expect(message).toContain('VITE_AVALANCHE_FUJI_MULTI_CHAIN_VALIDATOR_ADDRESS');
+    });
   });
 
   describe('isNetworkError', () => {

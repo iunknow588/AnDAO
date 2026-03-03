@@ -42,21 +42,28 @@ export class WalletError extends Error {
   private resolveValidationMessage(): string {
     const raw = this.message || '';
     const [prefix, detail] = raw.split(':', 2).map((part) => part.trim());
+    const envVarMatch = raw.match(/(VITE_[A-Z0-9_]+)/);
 
     switch (prefix) {
       case 'STRICT_ONCHAIN_CREATE_REQUIRED':
         return '当前链要求申请创建必须立即上链，请先解锁可用签名私钥后重试';
       case 'SPONSOR_CONTRACT_NOT_ALLOWED':
         return detail
-          ? `赞助商策略拒绝：目标合约未在白名单中（${detail}）`
-          : '赞助商策略拒绝：目标合约未在白名单中';
+          ? `该操作被赞助商策略拒绝：目标合约未在白名单中（${detail}）`
+          : '该操作被赞助商策略拒绝：目标合约未在白名单中';
       case 'SPONSOR_USER_NOT_WHITELISTED':
         return detail
-          ? `赞助商策略拒绝：申请用户未在白名单中（${detail}）`
-          : '赞助商策略拒绝：申请用户未在白名单中';
+          ? `该操作被赞助商策略拒绝：申请用户未在白名单中（${detail}）`
+          : '该操作被赞助商策略拒绝：申请用户未在白名单中';
       default:
         if (raw.includes('chain-bound')) {
           return '赞助商权限与链绑定，请切换到对应链后重试';
+        }
+        if (raw.includes('未配置（当前链') && envVarMatch?.[1]) {
+          return `当前链关键配置缺失，请先在环境变量 ${envVarMatch[1]} 中填写有效地址后重试`;
+        }
+        if (raw.includes('not configured for chain') && envVarMatch?.[1]) {
+          return `当前链关键配置缺失，请先在环境变量 ${envVarMatch[1]} 中填写有效地址后重试`;
         }
         return raw || '输入验证失败';
     }
