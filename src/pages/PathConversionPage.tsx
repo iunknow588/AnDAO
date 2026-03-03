@@ -5,7 +5,6 @@
  * 
  * 支持的转换：
  * - 路径A → 路径B：添加EOA账户，升级为标准模式
- * - 路径A → 路径C：注册成为赞助商
  * - 路径B → 路径C：注册成为赞助商
  * 
  * @module pages/PathConversionPage
@@ -29,8 +28,9 @@ import { UserType } from '@/types';
 import type { Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { StorageProviderType } from '@/interfaces/IStorageProvider';
+import { userCapabilityService } from '@/services/UserCapabilityService';
 
-type ConversionPath = 'a-to-b' | 'a-to-c' | 'b-to-c';
+type ConversionPath = 'a-to-b' | 'b-to-c';
 
 const Container = styled.div`
   max-width: 800px;
@@ -142,6 +142,7 @@ export const PathConversionPage: React.FC = observer(() => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [simpleUpgradeGuardianCount, setSimpleUpgradeGuardianCount] = useState<number | null>(null);
   
   // 路径A → B 状态
   const [eoaPrivateKey, setEoaPrivateKey] = useState('');
@@ -174,12 +175,16 @@ export const PathConversionPage: React.FC = observer(() => {
           const creationPath = account.creationPath;
           
           setCurrentUserType(userType);
+          setSimpleUpgradeGuardianCount(null);
           
           // 根据当前用户类型，确定可用的转换路径
-          if (userType === 'simple' || creationPath === 'path_a_simple') {
-            // 路径A可以转换为路径B或路径C
-            // 这里不自动设置，让用户选择
-          } else if (userType === 'standard' || creationPath === 'path_b_standard') {
+          if (userType === UserType.SIMPLE || creationPath === 'path_a_simple') {
+            const eligibility = await userCapabilityService.evaluateSimpleToStandardEligibility(
+              account.address as Address,
+              account.chainId
+            );
+            setSimpleUpgradeGuardianCount(eligibility.guardianCount);
+          } else if (userType === UserType.STANDARD || creationPath === 'path_b_standard') {
             // 路径B可以转换为路径C
             // 这里不自动设置，让用户选择
           }
@@ -280,10 +285,28 @@ export const PathConversionPage: React.FC = observer(() => {
         gasAccountPassword
       );
 
-      // 执行赞助商注册
+      const currentAccount = accountStore.currentAccount;
+      if (!currentAccount) {
+        throw new Error('当前账户不存在');
+      }
+
+      // 标准用户 -> 赞助商：需满足链上原生代币阈值
+      if (currentUserType !== UserType.STANDARD) {
+        throw new Error('仅标准用户支持升级为赞助商');
+      }
+
+      const eligibility = await userCapabilityService.evaluateStandardToSponsorEligibility(
+        currentAccount
+      );
+      if (!eligibility.eligible) {
+        throw new Error(
+          `当前链 Gas 余额不足。需要至少 ${eligibility.requiredNativeBalanceDisplay}，请先充值后再升级。`
+        );
+      }
+
+      // 执行赞助商注册（链绑定）
       const sponsorId = await sponsorService.registerOnChain({
-        sponsorAddress: (accountStore.currentAccount.owner ||
-          accountStore.currentAccount.address) as Address,
+        sponsorAddress: (currentAccount.owner || currentAccount.address) as Address,
         gasAccountAddress: gasAccount.address as Address,
         sponsorInfo: {
           name: sponsorName,
@@ -298,24 +321,16 @@ export const PathConversionPage: React.FC = observer(() => {
           type: StorageProviderType.IPFS,
           name: 'Default IPFS',
         },
+        chainId: currentAccount.chainId,
       });
 
       // 执行路径转换
-      if (currentUserType === 'simple') {
-        await accountManager.convertPathAToC(
-          accountStore.currentAccount.address as Address,
-          accountStore.currentAccount.chainId,
-          sponsorId,
-          normalizedGasAccountPrivateKey
-        );
-      } else if (currentUserType === 'standard') {
-        await accountManager.convertPathBToC(
-          accountStore.currentAccount.address as Address,
-          accountStore.currentAccount.chainId,
-          sponsorId,
-          normalizedGasAccountPrivateKey
-        );
-      }
+      await accountManager.convertPathBToC(
+        currentAccount.address as Address,
+        currentAccount.chainId,
+        sponsorId,
+        normalizedGasAccountPrivateKey
+      );
 
       setSuccess('路径转换成功！您已成为赞助商。');
       setTimeout(() => {
@@ -337,24 +352,19 @@ export const PathConversionPage: React.FC = observer(() => {
 
     const options: Array<{ value: ConversionPath; label: string; description: string }> = [];
     
-    if (currentUserType === 'simple') {
-      options.push(
-        {
+    if (currentUserType === UserType.SIMPLE) {
+      if (simpleUpgradeGuardianCount !== null && simpleUpgradeGuardianCount >= 3) {
+        options.push({
           value: 'a-to-b',
           label: '路径A → 路径B（添加EOA账户）',
-          description: '添加EOA账户，升级为标准模式，可以使用自己的EOA支付Gas',
-        },
-        {
-          value: 'a-to-c',
-          label: '路径A → 路径C（成为赞助商）',
-          description: '注册成为赞助商，可以帮助他人创建账户并代付Gas',
-        }
-      );
-    } else if (currentUserType === 'standard') {
+          description: '守护人数量已达到3个，可升级为标准模式并支持自付Gas。',
+        });
+      }
+    } else if (currentUserType === UserType.STANDARD) {
       options.push({
         value: 'b-to-c',
         label: '路径B → 路径C（成为赞助商）',
-        description: '注册成为赞助商，可以帮助他人创建账户并代付Gas',
+        description: '当前链原生Gas余额达到阈值后，可升级为该链赞助商。',
       });
     }
 
@@ -380,7 +390,12 @@ export const PathConversionPage: React.FC = observer(() => {
         <Card>
           <Title>路径转换</Title>
           <InfoText>当前账户类型不支持路径转换</InfoText>
-          {currentUserType === 'sponsor' && (
+          {currentUserType === UserType.SIMPLE && simpleUpgradeGuardianCount !== null && (
+            <InfoText style={{ marginTop: '8px' }}>
+              当前守护人数量为 {simpleUpgradeGuardianCount}，需达到 3 个后才可升级为标准用户。
+            </InfoText>
+          )}
+          {currentUserType === UserType.SPONSOR && (
             <InfoText style={{ marginTop: '8px' }}>
               您已经是赞助商，无需转换。
             </InfoText>
@@ -465,19 +480,21 @@ export const PathConversionPage: React.FC = observer(() => {
         </Card>
       )}
 
-      {/* 路径A/B → 路径C表单 */}
-      {(conversionPath === 'a-to-c' || conversionPath === 'b-to-c') && (
+      {/* 路径B → 路径C表单 */}
+      {conversionPath === 'b-to-c' && (
         <Card>
-          <h2>
-            {conversionPath === 'a-to-c' ? '路径A → 路径C' : '路径B → 路径C'}：成为赞助商
-          </h2>
+          <h2>路径B → 路径C：成为赞助商（按链绑定）</h2>
           <InfoBox>
             <InfoText>
               <strong>转换说明：</strong>
               <br />
+              • 仅标准用户可升级为赞助商
+              <br />
+              • 当前链原生Gas余额需达到阈值（默认10个原生代币）
+              <br />
               • 需要设置赞助商资料和Gas支付账户
               <br />
-              • 转换后，您可以帮助他人创建账户并代付Gas
+              • 转换后，您仅在当前链拥有赞助商权限（其他链需分别注册）
               <br />
               • 智能合约账户地址保持不变
               <br />

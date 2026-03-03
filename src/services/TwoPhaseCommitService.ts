@@ -15,6 +15,7 @@ import { accountManager } from './AccountManager';
 import { twoPhaseCommitEncryption } from './TwoPhaseCommitEncryption';
 import { rpcClientManager } from '@/utils/RpcClientManager';
 import { requireChainConfig } from '@/utils/chainConfigValidation';
+import { getAccountOwnerPrivateKey } from '@/utils/getPrivateKey';
 
 /**
  * 两阶段提交合约标准 ABI
@@ -90,6 +91,7 @@ function toCommitmentStatus(value: unknown): CommitmentStatus {
 export class TwoPhaseCommitService {
   private monitoringTasks: Map<string, NodeJS.Timeout> = new Map();
   private useServiceWorker: boolean = false;
+  private autoRevealInProgress: Set<string> = new Set();
   
   /**
    * 初始化服务
@@ -396,18 +398,7 @@ export class TwoPhaseCommitService {
       try {
         const canReveal = await this.checkCanReveal(task);
         if (canReveal) {
-          task.status = 'ready_to_reveal';
-          await this.saveTask(task);
-          await this.stopMonitoring(task.id);
-
-          // 触发事件通知用户
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(
-              new CustomEvent('two-phase-commit:ready-to-reveal', {
-                detail: { taskId: task.id },
-              })
-            );
-          }
+          await this.handleTaskReadyToReveal(task.id);
         }
       } catch (error) {
         console.error(`Error monitoring task ${task.id}:`, error);
@@ -437,6 +428,46 @@ export class TwoPhaseCommitService {
           detail: { taskId: task.id },
         })
       );
+    }
+
+    // 在授权会话边界内，自动尝试发送 reveal；若会话私钥不可用则保持手动触发
+    await this.tryAutoReveal(task);
+  }
+
+  /**
+   * 自动执行 reveal（会话内可用时）
+   *
+   * 安全边界：
+   * - 仅在用户已登录且会话中存在 owner 私钥缓存时执行
+   * - 无会话私钥时仅保留 ready_to_reveal 状态，等待用户手动确认
+   */
+  private async tryAutoReveal(task: TwoPhaseCommitTask): Promise<void> {
+    if (this.autoRevealInProgress.has(task.id)) {
+      return;
+    }
+    this.autoRevealInProgress.add(task.id);
+
+    try {
+      const accountAddress = task.accountAddress as Address | undefined;
+      if (!accountAddress) {
+        return;
+      }
+
+      const ownerPrivateKey = await getAccountOwnerPrivateKey(accountAddress, task.chainId);
+      const txHash = await this.reveal(task.id, ownerPrivateKey);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('two-phase-commit:auto-revealed', {
+            detail: { taskId: task.id, txHash },
+          })
+        );
+      }
+    } catch (error) {
+      // 自动 reveal 是能力增强，不应阻断 ready_to_reveal 的手动路径
+      console.info(`[TwoPhaseCommitService] Auto reveal skipped/failed for task ${task.id}:`, error);
+    } finally {
+      this.autoRevealInProgress.delete(task.id);
     }
   }
   

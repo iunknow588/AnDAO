@@ -40,6 +40,7 @@ vi.mock('@/config/chains', () => ({
     }
     return { chainId: 5000 };
   }),
+  AVALANCHE_FUJI_CHAIN: { chainId: 43113 },
   getSupportedChainByChainId: vi.fn().mockImplementation((chainId: number) => {
     if ([5000, 5003].includes(chainId)) return SupportedChain.MANTLE;
     if ([1776, 1439].includes(chainId)) return SupportedChain.INJECTIVE;

@@ -169,6 +169,7 @@ describe('MingWalletBridgeService', () => {
     );
     vi.mocked(rpcClientManager.getPublicClient).mockReturnValue({
       waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: 'success',
         blockNumber: 123n,
         logs: [],
       }),
@@ -417,6 +418,73 @@ describe('MingWalletBridgeService', () => {
     expect(response.payload.success).toBe(false);
     expect(response.payload.error.code).toBe('CHAIN_NOT_SUPPORTED');
     expect(transactionRelayer.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('enforces self_pay policy for SEND_TRANSACTION when gasPolicy.primary=self_pay', async () => {
+    await service!.init();
+
+    const response = await sendRequest({
+      type: 'MING_WALLET_SEND_TRANSACTION_REQUEST',
+      messageId: 'msg_send_tx_self_pay_001',
+      payload: {
+        protocolVersion: '1.0.0',
+        chainId: 11155111,
+        chainFamily: 'evm',
+        to: '0x3333333333333333333333333333333333333333',
+        data: '0xabcdef',
+        gasPolicy: {
+          primary: 'self_pay',
+          fallback: 'sponsored',
+        },
+      },
+    });
+
+    expect(response.payload.success).toBe(true);
+    expect(response.payload.data.effectiveGasPolicy).toBe('self_pay');
+    expect(transactionRelayer.sendTransaction).toHaveBeenCalledWith(
+      TEST_ACCOUNT.address,
+      11155111,
+      '0x3333333333333333333333333333333333333333',
+      '0xabcdef',
+      TEST_PRIVATE_KEY,
+      BigInt(0),
+      expect.objectContaining({
+        sponsored: false,
+      })
+    );
+  });
+
+  it('returns CONTRACT_CALL_FAILED when SEND_TRANSACTION receipt is reverted', async () => {
+    await service!.init();
+
+    vi.mocked(rpcClientManager.getPublicClient).mockReturnValueOnce({
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: 'reverted',
+        blockNumber: 456n,
+        logs: [],
+      }),
+      getBlock: vi.fn().mockResolvedValue({
+        timestamp: 1700000000n,
+      }),
+    } as never);
+
+    const response = await sendRequest({
+      type: 'MING_WALLET_SEND_TRANSACTION_REQUEST',
+      messageId: 'msg_send_tx_reverted_001',
+      payload: {
+        protocolVersion: '1.0.0',
+        chainId: 11155111,
+        chainFamily: 'evm',
+        to: '0x3333333333333333333333333333333333333333',
+        data: '0xabcdef',
+        gasPolicy: {
+          primary: 'sponsored',
+        },
+      },
+    });
+
+    expect(response.payload.success).toBe(false);
+    expect(response.payload.error.code).toBe('CONTRACT_CALL_FAILED');
   });
 
   it('handles GET_ACTIVE_ACCOUNT request on evm', async () => {

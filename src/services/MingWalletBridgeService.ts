@@ -562,13 +562,13 @@ export class MingWalletBridgeService {
       this.resolveSponsorContextFromPayload(payload)
     );
 
-    const receiptMeta = await this.tryGetReceiptMeta(payload.chainId, txHash);
+    const receiptMeta = await this.getConfirmedReceiptMeta(payload.chainId, txHash);
     return {
       txHash,
-      status: receiptMeta ? 'confirmed' : 'submitted',
+      status: 'confirmed',
       effectiveGasPolicy: payload.gasPolicy.primary,
-      blockNumber: receiptMeta?.blockNumber,
-      timestamp: receiptMeta?.timestamp,
+      blockNumber: receiptMeta.blockNumber,
+      timestamp: receiptMeta.timestamp,
     };
   }
 
@@ -1035,6 +1035,36 @@ export class MingWalletBridgeService {
     } catch (_error) {
       return null;
     }
+  }
+
+  private async getConfirmedReceiptMeta(
+    chainId: number,
+    txHash: Hash
+  ): Promise<{ blockNumber: number; timestamp?: number }> {
+    const publicClient = rpcClientManager.getPublicClient(chainId);
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: 180_000,
+    });
+    if (receipt.status !== 'success') {
+      throw new MingProtocolError(
+        'CONTRACT_CALL_FAILED',
+        `Transaction reverted: ${txHash}`
+      );
+    }
+
+    let timestamp: number | undefined;
+    try {
+      const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber });
+      timestamp = Number(block.timestamp);
+    } catch (_error) {
+      timestamp = undefined;
+    }
+
+    return {
+      blockNumber: Number(receipt.blockNumber),
+      timestamp,
+    };
   }
 
   private extractTokenIdFromLogs(

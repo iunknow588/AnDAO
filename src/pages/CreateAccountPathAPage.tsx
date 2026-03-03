@@ -5,8 +5,8 @@
  * 1. 自动生成智能账户密钥对
  * 2. 备份助记词
  * 3. 选择赞助商
- * 4. 提交申请
- * 5. 等待审核
+ * 4. 提交注册申请
+ * 5. 等待审批
  * 6. 创建成功
  * 
  * @module pages/CreateAccountPathAPage
@@ -225,7 +225,7 @@ export const CreateAccountPathAPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, ownerAddress]);
   
-  // 步骤4: 轮询申请状态
+  // 步骤4: 轮询注册申请状态
   useEffect(() => {
     if (step === 4 && application) {
       sponsorService.pollApplicationStatus(
@@ -236,7 +236,7 @@ export const CreateAccountPathAPage: React.FC = () => {
             setStep(5); // 创建成功
           } else if (status === 'rejected') {
             // 处理拒绝情况
-            ErrorHandler.showError('申请被拒绝，请重新选择赞助商');
+            ErrorHandler.showError('注册申请被拒绝，请重新选择赞助商');
             setStep(3); // 返回选择赞助商
           }
         }
@@ -399,7 +399,7 @@ export const CreateAccountPathAPage: React.FC = () => {
       return;
     }
     
-    // 创建申请
+    // 创建简易用户注册申请
     try {
       setIsLoading(true);
       const chainId = accountStore.currentChainId;
@@ -490,7 +490,7 @@ export const CreateAccountPathAPage: React.FC = () => {
     { number: 1, label: '生成密钥' },
     { number: 2, label: '预测地址' },
     { number: 3, label: '选择赞助商' },
-    { number: 4, label: '等待审核' },
+    { number: 4, label: '等待审批' },
     { number: 5, label: '完成' },
   ];
   
@@ -648,10 +648,10 @@ export const CreateAccountPathAPage: React.FC = () => {
           />
 
           <Input
-            label="备注（可选，供赞助商审核）"
+            label="备注（可选，供赞助商审批）"
             value={applicationRemark}
             onChange={(e) => setApplicationRemark(e.target.value)}
-            placeholder="可填写邀请码来源、申请说明等"
+            placeholder="可填写邀请码来源、注册说明等"
           />
           
           <div style={{ marginTop: '24px', marginBottom: '16px' }}>
@@ -684,13 +684,13 @@ export const CreateAccountPathAPage: React.FC = () => {
               onClick={handleSelectSponsor}
               disabled={isLoading || (!selectedSponsor && !inviteCode)}
             >
-              {isLoading ? <LoadingSpinner /> : '提交申请'}
+              {isLoading ? <LoadingSpinner /> : '提交注册'}
             </Button>
           </ButtonGroup>
         </Card>
       )}
       
-      {/* 步骤4: 等待审核 */}
+      {/* 步骤4: 等待审批 */}
       {step === 4 && application && (
         <StatusCard>
           <StatusIcon>
@@ -699,14 +699,14 @@ export const CreateAccountPathAPage: React.FC = () => {
              applicationStatus === 'rejected' ? '❌' : '🚀'}
           </StatusIcon>
           <StatusText>
-            {applicationStatus === 'pending' ? '等待审核' :
-             applicationStatus === 'approved' ? '审核通过' :
-             applicationStatus === 'rejected' ? '审核被拒绝' : '账户创建中'}
+            {applicationStatus === 'pending' ? '等待审批' :
+             applicationStatus === 'approved' ? '审批通过' :
+             applicationStatus === 'rejected' ? '审批被拒绝' : '账户创建中'}
           </StatusText>
           <StatusDescription>
-            {applicationStatus === 'pending' && '您的申请已提交，正在等待赞助商审核...'}
-            {applicationStatus === 'approved' && '赞助商已批准您的申请，正在创建账户...'}
-            {applicationStatus === 'rejected' && '很抱歉，您的申请被拒绝了'}
+            {applicationStatus === 'pending' && '您的简易用户注册申请已提交，正在等待赞助商审批...'}
+            {applicationStatus === 'approved' && '赞助商已批准您的注册申请，正在创建账户...'}
+            {applicationStatus === 'rejected' && '很抱歉，您的注册申请被拒绝了'}
             {applicationStatus === 'deployed' && '账户创建成功！'}
           </StatusDescription>
           {predictedAddress && (

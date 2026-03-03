@@ -160,7 +160,7 @@ export const PathAUpgradeDialog: React.FC<PathAUpgradeDialogProps> = ({
         <UpgradeTitle>🎉 恭喜！您已达到升级条件</UpgradeTitle>
         
         <UpgradeDescription>
-          您的账户现在有 3 个或更多守护人，可以升级到标准账户（STANDARD），获得更多功能。
+          您的账户守护人数量已达到 3 个，可以升级到标准账户（STANDARD），获得更多功能。
         </UpgradeDescription>
 
         <BenefitsList>

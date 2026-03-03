@@ -18,7 +18,7 @@
  * @module services/SponsorService
  */
 
-import { Address, Hash } from 'viem';
+import { Address, Hash, Hex } from 'viem';
 import { accountManager } from './AccountManager';
 import { keyManagerService } from './KeyManagerService';
 import { storageProviderManager } from './storage/StorageProviderManager';
@@ -41,6 +41,9 @@ import {
 import { ErrorHandler, ErrorCode, WalletError } from '@/utils/errors';
 import { logger } from '@/utils/logger';
 import { AVALANCHE_CHAIN, AVALANCHE_FUJI_CHAIN } from '@/config/chains';
+import { userCapabilityService } from './UserCapabilityService';
+import type { SponsorPolicyContext } from './TransactionRelayer';
+import { transactionRelayer } from './TransactionRelayer';
 
 const LOG_CONTEXT = 'SponsorService';
 export type SponsorApplicationsDataSource =
@@ -678,6 +681,71 @@ export class SponsorService {
       ErrorHandler.handleError(error, ErrorCode.CONTRACT_ERROR);
       throw error;
     }
+  }
+
+  /**
+   * 赞助商：在绑定链部署合约
+   *
+   * 说明：
+   * - 仅允许 sponsor 角色账户在其绑定链执行；
+   * - 支持会话私钥优先，必要时可回退密码解锁；
+   * - 部署交易通过 AA 账户发送，to=0x0, data=bytecode(+constructorArgs)。
+   */
+  async deployContractOnBoundChain(params: {
+    sponsorAccountAddress: Address;
+    chainId: number;
+    bytecode: Hex;
+    constructorArgsHex?: Hex;
+    value?: bigint;
+    password?: string;
+    sponsorPolicyContext?: SponsorPolicyContext;
+  }): Promise<Hash> {
+    const account = await this.accountManager.getAccountByAddress(
+      params.sponsorAccountAddress,
+      params.chainId
+    );
+    if (!account) {
+      throw new Error(`Sponsor account not found: ${params.sponsorAccountAddress}`);
+    }
+
+    userCapabilityService.assertSponsorChainBinding(account, params.chainId);
+
+    if (!/^0x[0-9a-fA-F]+$/.test(params.bytecode)) {
+      throw new Error('Invalid contract bytecode');
+    }
+
+    const constructorArgs = params.constructorArgsHex || ('0x' as Hex);
+    if (!/^0x[0-9a-fA-F]*$/.test(constructorArgs)) {
+      throw new Error('Invalid constructorArgsHex');
+    }
+
+    const deployData = `${params.bytecode}${constructorArgs.slice(2)}` as Hex;
+    const deployTo = '0x0000000000000000000000000000000000000000' as Address;
+
+    let signerPrivateKey = await this.keyManagerService.getPrivateKeyFromSession(
+      account.owner as Address
+    );
+
+    if (!signerPrivateKey && params.password) {
+      signerPrivateKey = await this.keyManagerService.getPrivateKey(
+        account.owner as Address,
+        params.password
+      );
+    }
+
+    if (!signerPrivateKey) {
+      throw new Error('Sponsor owner private key is not available. Please unlock wallet first.');
+    }
+
+    return transactionRelayer.sendTransaction(
+      account.address as Address,
+      params.chainId,
+      deployTo,
+      deployData,
+      signerPrivateKey,
+      params.value || 0n,
+      params.sponsorPolicyContext
+    );
   }
   
   /**
