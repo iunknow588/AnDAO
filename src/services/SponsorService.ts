@@ -959,6 +959,10 @@ export class SponsorService {
         application.chainId,
         gasAccountPrivateKey
       );
+
+      if (!txHash || txHash === '0x') {
+        throw new Error('Deployment transaction hash is missing');
+      }
       
       // 验证创建的账户地址与预测地址一致
       if (accountAddress.toLowerCase() !== application.accountAddress.toLowerCase()) {
@@ -1004,8 +1008,7 @@ export class SponsorService {
       
       logger.info('Account deployed for user', LOG_CONTEXT, { applicationId, accountAddress });
       
-      // 返回部署交易哈希；在极端场景下如果未能获取到哈希，则退化为占位符
-      return (txHash ?? '0x') as Hash;
+      return txHash as Hash;
     } catch (error) {
       ErrorHandler.handleError(error, ErrorCode.CONTRACT_ERROR);
       throw error;
@@ -1041,28 +1044,41 @@ export class SponsorService {
    */
   async getChannelStats(channelId: string): Promise<ChannelStats> {
     try {
-      /**
-       * 设计文档中的期望：
-       * - 渠道统计数据理想情况下应该来自链上事件或离线索引服务，
-       *   例如：基于 ApplicationRegistry 的事件做聚合。
-       *
-       * 当前纯前端实现的折衷方案：
-       * - 由于没有集中式索引服务，这里仅返回一个“占位统计结构”，
-       *   保证前端 UI 与类型接口可用；
-       * - 真正的统计逻辑留给后端 / 子图实现时接入，不在钱包前端伪造。
-       *
-       * 这样可以：
-       * - 避免误导用户（不会返回看似“真实”的随机数据）；
-       * - 保持与 `ChannelStats` 类型和调用方的接口一致；
-       * - 将“从链上或索引服务查询”的职责明确标记为未来演进方向。
-       */
+      const channel = this.channels.get(channelId);
+      if (!channel) {
+        throw new Error(`Channel not found: ${channelId}`);
+      }
+
+      const applications = Array.from(this.applications.values()).filter((app) => {
+        const detailChannelId =
+          app.details && typeof app.details.channelId === 'string'
+            ? app.details.channelId
+            : undefined;
+        if (detailChannelId === channelId) {
+          return true;
+        }
+        if (channel.inviteCode && app.inviteCode) {
+          return app.inviteCode === channel.inviteCode;
+        }
+        return false;
+      });
+
+      const totalApplications = applications.length;
+      const approvedCount = applications.filter((app) => app.status === 'approved').length;
+      const rejectedCount = applications.filter((app) => app.status === 'rejected').length;
+      const deployedCount = applications.filter((app) => app.status === 'deployed').length;
+      const successfulCount = approvedCount + deployedCount;
+      const approvalRate = totalApplications === 0
+        ? 0
+        : Number(((successfulCount / totalApplications) * 100).toFixed(2));
+
       const stats: ChannelStats = {
         channelId,
-        totalApplications: 0,
-        approvedCount: 0,
-        rejectedCount: 0,
-        deployedCount: 0,
-        approvalRate: 0,
+        totalApplications,
+        approvedCount,
+        rejectedCount,
+        deployedCount,
+        approvalRate,
       };
       
       return stats;

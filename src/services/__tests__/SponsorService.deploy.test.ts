@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountCreationPath, UserType } from '@/types';
 import { transactionRelayer } from '@/services/TransactionRelayer';
 import { SponsorService } from '@/services/SponsorService';
+import type { Address } from 'viem';
 
 describe('SponsorService.deployContractOnBoundChain', () => {
   let service: SponsorService;
@@ -73,5 +74,56 @@ describe('SponsorService.deployContractOnBoundChain', () => {
         bytecode: '0x60006000',
       })
     ).rejects.toThrow(/chain-bound/);
+  });
+
+  it('should reject deployAccountForUser when deployment tx hash is missing', async () => {
+    (service as any).applications = new Map([
+      [
+        'app-1',
+        {
+          id: 'app-1',
+          accountAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          ownerAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          sponsorId: 'sponsor-1',
+          sponsorAddress: '0xcccccccccccccccccccccccccccccccccccccccc',
+          chainId: 43113,
+          status: 'approved',
+          createdAt: Date.now(),
+        },
+      ],
+    ]);
+    (service as any).sponsors = new Map([
+      [
+        'sponsor-1',
+        {
+          id: 'sponsor-1',
+          address: '0xcccccccccccccccccccccccccccccccccccccccc' as Address,
+          name: 'S1',
+          approvalRate: 100,
+          avgWaitTime: 1,
+          totalSponsored: 1,
+          availableBalance: 1n,
+        },
+      ],
+    ]);
+    (service as any).keyManagerService = {
+      getPrivateKey: vi
+        .fn()
+        .mockResolvedValue('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+      getPrivateKeyFromSession: vi.fn(),
+    };
+    const importSpy = vi.fn().mockResolvedValue(undefined);
+    (service as any).accountManager = {
+      createAndDeployAccountWithTx: vi.fn().mockResolvedValue({
+        address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        txHash: undefined,
+      }),
+      importAccount: importSpy,
+    };
+
+    await expect(service.deployAccountForUser('sponsor-1', 'app-1', 'password')).rejects.toThrow(
+      /Deployment transaction hash is missing/
+    );
+    expect(importSpy).not.toHaveBeenCalled();
   });
 });

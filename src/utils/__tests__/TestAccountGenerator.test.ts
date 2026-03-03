@@ -172,16 +172,26 @@ describe('TestAccountGenerator', () => {
       expect(accountSet.sponsorAccount).toBeUndefined();
     });
 
-    it('应该在预测失败时使用占位地址', async () => {
+    it('应该在显式允许时于预测失败后使用占位地址', async () => {
       const chainId = 5000;
       
       mockAccountManager.predictAccountAddress.mockRejectedValue(new Error('RPC failed'));
       
-      const accountSet = await generator.generateAccountSet(chainId, true);
+      const accountSet = await generator.generateAccountSet(chainId, true, true);
       
       // 应该使用占位地址
       expect(accountSet.mainAccount.address).toBe('0x' + '1'.repeat(40));
       expect(accountSet.mainAccount.privateKey).toBeDefined();
+    });
+
+    it('默认应在预测失败时抛错，避免误用占位地址', async () => {
+      const chainId = 5000;
+
+      mockAccountManager.predictAccountAddress.mockRejectedValue(new Error('RPC failed'));
+
+      await expect(generator.generateAccountSet(chainId, true)).rejects.toThrow(
+        /Failed to predict smart account address/
+      );
     });
   });
 

@@ -217,6 +217,62 @@ describe('SponsorService', () => {
       expect(channelId).toContain('channel-');
     });
   });
+
+  describe('getChannelStats', () => {
+    it('should aggregate stats from channel related applications', async () => {
+      const sponsorId = await sponsorService.registerOnChain({
+        sponsorAddress: '0x1111111111111111111111111111111111111111' as Address,
+        gasAccountAddress: '0x2222222222222222222222222222222222222222' as Address,
+        sponsorInfo: {
+          name: 'Stats Sponsor',
+        },
+        rules: {
+          dailyLimit: 100,
+          maxGasPerAccount: BigInt('1000000000000000'),
+          autoApprove: false,
+        },
+      });
+
+      const channelId = await sponsorService.createChannel(sponsorId, {
+        name: 'Stats Channel',
+        inviteCode: 'STATS-CODE',
+      });
+
+      const app1 = await sponsorService.createApplication({
+        accountAddress: '0x3333333333333333333333333333333333333333' as Address,
+        ownerAddress: '0x4444444444444444444444444444444444444444' as Address,
+        sponsorId,
+        chainId: 5001,
+        inviteCode: 'STATS-CODE',
+      });
+      const app2 = await sponsorService.createApplication({
+        accountAddress: '0x5555555555555555555555555555555555555555' as Address,
+        ownerAddress: '0x6666666666666666666666666666666666666666' as Address,
+        sponsorId,
+        chainId: 5001,
+        inviteCode: 'STATS-CODE',
+      });
+      const app3 = await sponsorService.createApplication({
+        accountAddress: '0x7777777777777777777777777777777777777777' as Address,
+        ownerAddress: '0x8888888888888888888888888888888888888888' as Address,
+        sponsorId,
+        chainId: 5001,
+        inviteCode: 'STATS-CODE',
+      });
+
+      await sponsorService.reviewApplication(sponsorId, app2.id, 'approve');
+      await sponsorService.reviewApplication(sponsorId, app3.id, 'reject', 'risk');
+
+      const stats = await sponsorService.getChannelStats(channelId);
+
+      expect(stats.totalApplications).toBe(3);
+      expect(stats.approvedCount).toBe(1);
+      expect(stats.rejectedCount).toBe(1);
+      expect(stats.deployedCount).toBe(0);
+      expect(stats.approvalRate).toBeCloseTo(33.33, 2);
+      expect(app1.status).toBe('pending');
+    });
+  });
   
   describe('setSponsorStorageConfig', () => {
     it('should set storage config for sponsor', async () => {

@@ -174,6 +174,7 @@ export class TestAccountGenerator {
    * 
    * @param chainId 链 ID（默认 5000 - Mantle）
    * @param includeSponsor 是否包含赞助商账户（默认 true）
+   * @param allowPlaceholderOnPredictFailure 地址预测失败时是否允许占位地址（默认 false）
    * @returns 测试账号集合
    * 
    * @example
@@ -185,7 +186,8 @@ export class TestAccountGenerator {
    */
   async generateAccountSet(
     chainId: number = 5000,
-    includeSponsor: boolean = true
+    includeSponsor: boolean = true,
+    allowPlaceholderOnPredictFailure: boolean = false
   ): Promise<TestAccountSet> {
     // 1. 生成主账户的EOA（所有者）
     const ownerEOA = this.generateEOA('main-owner');
@@ -198,11 +200,18 @@ export class TestAccountGenerator {
         chainId
       );
     } catch (error) {
-      // 如果预测失败（例如在测试环境中），使用一个占位地址
-      logger.warn('Failed to predict smart account address, using placeholder', 'TestAccountGenerator', {
+      if (!allowPlaceholderOnPredictFailure) {
+        throw new Error(
+          `Failed to predict smart account address on chain ${chainId}. ` +
+          'Provide valid chain config/RPC or explicitly enable placeholder fallback for local-only tests.'
+        );
+      }
+
+      logger.warn('Failed to predict smart account address, using placeholder (test-only fallback)', 'TestAccountGenerator', {
         error,
+        chainId,
       });
-      mainAccountAddress = '0x' + '1'.repeat(40) as Address;
+      mainAccountAddress = (`0x${'1'.repeat(40)}`) as Address;
     }
 
     // 3. 生成辅助账户（2个）
@@ -308,13 +317,14 @@ export class TestAccountGenerator {
    * ```
    */
   async generateTestnetAccounts(
-    chainId: number = 5000
+    chainId: number = 5000,
+    allowPlaceholderOnPredictFailure: boolean = false
   ): Promise<TestAccountSet[]> {
     const sets: TestAccountSet[] = [];
     
     // 生成3组测试账号集合
     for (let i = 0; i < 3; i++) {
-      const set = await this.generateAccountSet(chainId, true);
+      const set = await this.generateAccountSet(chainId, true, allowPlaceholderOnPredictFailure);
       sets.push(set);
     }
     
