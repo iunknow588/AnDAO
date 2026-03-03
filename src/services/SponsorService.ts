@@ -1212,17 +1212,6 @@ export class SponsorService {
     if (cached) {
       return cached;
     }
-
-    // 1.5 降级：从当前推荐列表中查找（仅限当前运行期可见数据）
-    try {
-      const recommended = await this.getRecommendedSponsors();
-      const found = recommended.find((s) => s.id === sponsorId);
-      if (found) {
-        return found;
-      }
-    } catch {
-      // 忽略推荐列表异常，继续尝试链上查询
-    }
     
     // 2. 从链上ApplicationRegistry合约查询（仅当 sponsorId 可解析出完整地址时）
     try {
