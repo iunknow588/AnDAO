@@ -314,7 +314,7 @@ export const PathConversionPage: React.FC = observer(() => {
         },
         rules: {
           dailyLimit: 100,
-          maxGasPerAccount: BigInt('1000000000000000'), // 0.001 MNT
+          maxGasPerAccount: BigInt('1000000000000000'), // 0.001 native token
           autoApprove: false,
         },
         storageConfig: {

@@ -329,6 +329,9 @@ export const SponsorDashboardPage = observer(() => {
   const [whitelistLoading, setWhitelistLoading] = useState(false);
   const [contractWhitelist, setContractWhitelist] = useState<string[]>([]);
   const [userWhitelist, setUserWhitelist] = useState<string[]>([]);
+  const reviewedCount = stats.approved + stats.rejected + stats.deployed;
+  const reviewRate = stats.total > 0 ? ((reviewedCount / stats.total) * 100).toFixed(1) : '0.0';
+  const deploymentRate = stats.total > 0 ? ((stats.deployed / stats.total) * 100).toFixed(1) : '0.0';
   const isSponsorAccount =
     accountStore.currentAccount?.userType === UserType.SPONSOR ||
     Boolean(accountStore.currentAccount?.sponsorId);
@@ -711,7 +714,10 @@ export const SponsorDashboardPage = observer(() => {
 
       {activeTab === 'channels' && (
         <Card>
-          <p>渠道管理功能开发中...</p>
+          <h2>渠道管理</h2>
+          <p>当前版本支持在注册阶段创建渠道并绑定邀请码，用于申请归因统计。</p>
+          <p>如需新增渠道，请在“路径C注册”流程中创建新的赞助商渠道配置。</p>
+          <p>本页面暂不提供渠道编辑能力，后续会补充渠道增删改入口。</p>
         </Card>
       )}
 
@@ -782,7 +788,10 @@ export const SponsorDashboardPage = observer(() => {
       {activeTab === 'stats' && (
         <Card>
           <h2>统计数据</h2>
-          <p>详细统计功能开发中...</p>
+          <p>总申请数：{stats.total}</p>
+          <p>已审核（通过/拒绝/已部署）：{reviewedCount}（{reviewRate}%）</p>
+          <p>已部署：{stats.deployed}（{deploymentRate}%）</p>
+          <p>当前数据源口径：{dataSource}</p>
         </Card>
       )}
 
