@@ -39,6 +39,29 @@ export enum ErrorCode {
  * 钱包错误类
  */
 export class WalletError extends Error {
+  private resolveValidationMessage(): string {
+    const raw = this.message || '';
+    const [prefix, detail] = raw.split(':', 2).map((part) => part.trim());
+
+    switch (prefix) {
+      case 'STRICT_ONCHAIN_CREATE_REQUIRED':
+        return '当前链要求申请创建必须立即上链，请先解锁可用签名私钥后重试';
+      case 'SPONSOR_CONTRACT_NOT_ALLOWED':
+        return detail
+          ? `赞助商策略拒绝：目标合约未在白名单中（${detail}）`
+          : '赞助商策略拒绝：目标合约未在白名单中';
+      case 'SPONSOR_USER_NOT_WHITELISTED':
+        return detail
+          ? `赞助商策略拒绝：申请用户未在白名单中（${detail}）`
+          : '赞助商策略拒绝：申请用户未在白名单中';
+      default:
+        if (raw.includes('chain-bound')) {
+          return '赞助商权限与链绑定，请切换到对应链后重试';
+        }
+        return raw || '输入验证失败';
+    }
+  }
+
   constructor(
     message: string,
     public code: ErrorCode,
@@ -81,7 +104,7 @@ export class WalletError extends Error {
         return '地址格式不正确';
       
       case ErrorCode.VALIDATION_ERROR:
-        return this.message || '输入验证失败';
+        return this.resolveValidationMessage();
       
       case ErrorCode.STORAGE_ERROR:
         return '存储操作失败';

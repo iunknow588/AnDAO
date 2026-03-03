@@ -118,6 +118,33 @@ describe('WalletError', () => {
       
       expect(message).toBe('密码错误，请重新输入');
     });
+
+    it('应该将严格上链校验错误映射为可读提示', () => {
+      const error = new WalletError(
+        'STRICT_ONCHAIN_CREATE_REQUIRED: private key is required to register application on chain',
+        ErrorCode.VALIDATION_ERROR
+      );
+      const message = error.toUserMessage();
+      expect(message).toContain('必须立即上链');
+    });
+
+    it('应该将赞助商白名单错误映射为可读提示', () => {
+      const error = new WalletError(
+        'SPONSOR_CONTRACT_NOT_ALLOWED: 0x2222222222222222222222222222222222222222',
+        ErrorCode.VALIDATION_ERROR
+      );
+      const message = error.toUserMessage();
+      expect(message).toContain('目标合约未在白名单中');
+    });
+
+    it('应该将链绑定错误映射为可读提示', () => {
+      const error = new WalletError(
+        'Sponsor role is chain-bound. account.chainId=43114, targetChainId=43113',
+        ErrorCode.VALIDATION_ERROR
+      );
+      const message = error.toUserMessage();
+      expect(message).toContain('权限与链绑定');
+    });
   });
 
   describe('isNetworkError', () => {
