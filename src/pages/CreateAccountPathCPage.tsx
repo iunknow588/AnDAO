@@ -906,7 +906,7 @@ export const CreateAccountPathCPage: React.FC = () => {
             <InfoText>
               • 进入赞助商仪表板查看待处理申请<br />
               • 分享您的邀请码开始推广<br />
-              • 管理审核规则和渠道设置
+              • 在仪表板处理申请审核并管理链上白名单
             </InfoText>
           </InfoBox>
           
