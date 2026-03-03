@@ -324,7 +324,8 @@ export class SponsorService {
       }
 
       if (typeof chainId === 'number') {
-        return this.queryApplicationStatusFromChain(chainId, applicationId);
+        const chainStatus = await this.queryApplicationStatusFromChain(chainId, applicationId);
+        return chainStatus.status;
       }
 
       logger.warn('Application not found in local cache, skip chain query without explicit chain context', LOG_CONTEXT, {
@@ -373,7 +374,8 @@ export class SponsorService {
           }
 
           // 优先使用申请记录中的链上下文，避免硬编码链ID
-          const currentStatus = await this.queryApplicationStatusFromChain(cached.chainId, applicationId);
+          const chainStatus = await this.queryApplicationStatusFromChain(cached.chainId, applicationId);
+          const currentStatus = chainStatus.status;
         
           if (cached && cached.status !== currentStatus) {
             // 状态变化，更新缓存并调用回调
@@ -478,8 +480,11 @@ export class SponsorService {
         Array.from(cachedById.values()).map(async (app) => {
           let latestStatus = chainStatusMap.get(app.id);
           if (!latestStatus) {
-            usedChainFallback = true;
-            latestStatus = await this.queryApplicationStatusFromChain(app.chainId, app.id);
+            const chainFallback = await this.queryApplicationStatusFromChain(app.chainId, app.id);
+            if (chainFallback.verifiedOnChain) {
+              usedChainFallback = true;
+            }
+            latestStatus = chainFallback.status;
           }
           if (latestStatus !== app.status) {
             app.status = latestStatus;
@@ -1388,20 +1393,32 @@ export class SponsorService {
     return null;
   }
 
-  private async queryApplicationStatusFromChain(chainId: number, applicationId: string): Promise<ApplicationStatus> {
+  private async queryApplicationStatusFromChain(
+    chainId: number,
+    applicationId: string
+  ): Promise<{ status: ApplicationStatus; verifiedOnChain: boolean }> {
     try {
       const index = await applicationRegistryClient.getApplication(chainId, applicationId);
       if (index && index.status !== undefined) {
-        return this.mapChainStatusToAppStatus(index.status);
+        return {
+          status: this.mapChainStatusToAppStatus(index.status),
+          verifiedOnChain: true,
+        };
       }
-      return 'pending';
+      return {
+        status: 'pending',
+        verifiedOnChain: true,
+      };
     } catch (error) {
       logger.warn('Failed to query application status from chain', LOG_CONTEXT, {
         applicationId,
         chainId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return 'pending';
+      return {
+        status: 'pending',
+        verifiedOnChain: false,
+      };
     }
   }
 
