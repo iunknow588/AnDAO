@@ -25,7 +25,7 @@ import { Input } from '@/components/Input';
 import { PasswordInputField } from '@/components/PasswordInput/PasswordInputField';
 import { ErrorHandler } from '@/utils/errors';
 import { normalizePrivateKeyInput, validatePasswordPair } from '@/utils/pathFlowValidation';
-import { requireChainConfig } from '@/utils/chainConfigValidation';
+import { getChainNativeSymbol, requireChainConfig } from '@/utils/chainConfigValidation';
 import { trimInputValue } from '@/utils/formValidation';
 import { useStore } from '@/stores';
 import { createPublicClient, http } from 'viem';
@@ -274,6 +274,8 @@ export const CreateAccountPathCPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   
   const chainId = accountStore.currentChainId;
+  const nativeSymbol = getChainNativeSymbol(chainId, 'ETH');
+  const sponsorGasAccountMinBalance = '0.5';
   
   // 步骤2: 加载Gas账户余额
   useEffect(() => {
@@ -385,8 +387,8 @@ export const CreateAccountPathCPage: React.FC = () => {
       // 检查余额
       const latestBalance = await loadGasAccountBalance(resolvedGasAccountAddress);
       
-      if (latestBalance === null || latestBalance < parseEther('0.5')) {
-        ErrorHandler.showError('Gas账户余额不足，至少需要0.5 MNT');
+      if (latestBalance === null || latestBalance < parseEther(sponsorGasAccountMinBalance)) {
+        ErrorHandler.showError(`Gas账户余额不足，至少需要${sponsorGasAccountMinBalance} ${nativeSymbol}`);
         return;
       }
       
@@ -611,7 +613,7 @@ export const CreateAccountPathCPage: React.FC = () => {
           <InfoBox>
             <InfoTitle>要求：</InfoTitle>
             <InfoText>
-              • 至少需要0.5 MNT作为初始Gas资金<br />
+              {`• 至少需要${sponsorGasAccountMinBalance} ${nativeSymbol}作为初始Gas资金`}<br />
               • 推荐使用专用账户，与个人资产隔离<br />
               • 确保账户有足够的余额支持赞助
             </InfoText>
@@ -713,7 +715,7 @@ export const CreateAccountPathCPage: React.FC = () => {
               
               <BalanceDisplay>
                 <BalanceLabel>账户余额</BalanceLabel>
-                <BalanceValue>{formatEther(gasAccountBalance)} MNT</BalanceValue>
+                <BalanceValue>{formatEther(gasAccountBalance)} {nativeSymbol}</BalanceValue>
               </BalanceDisplay>
             </>
           )}
@@ -726,7 +728,7 @@ export const CreateAccountPathCPage: React.FC = () => {
               onClick={handleSetGasAccount}
               disabled={
                 isLoading ||
-                (!!gasAccountAddress && gasAccountBalance < parseEther('0.5')) ||
+                (!!gasAccountAddress && gasAccountBalance < parseEther(sponsorGasAccountMinBalance)) ||
                 (gasAccountMethod === 'import' && !acknowledgePrivateKeyRisk)
               }
             >
@@ -755,7 +757,7 @@ export const CreateAccountPathCPage: React.FC = () => {
           />
           
           <Input
-            label="单账户最大Gas（MNT）"
+            label={`单账户最大Gas（${nativeSymbol}）`}
             type="number"
             step="0.001"
             value={maxGasPerAccount}
@@ -853,7 +855,7 @@ export const CreateAccountPathCPage: React.FC = () => {
               名称：{sponsorName}<br />
               描述：{sponsorDescription || '无'}<br />
               Gas账户：{gasAccountAddress}<br />
-              余额：{formatEther(gasAccountBalance)} MNT
+              余额：{formatEther(gasAccountBalance)} {nativeSymbol}
             </InfoText>
           </InfoBox>
           
@@ -861,7 +863,7 @@ export const CreateAccountPathCPage: React.FC = () => {
             <InfoTitle>审核规则：</InfoTitle>
             <InfoText>
               每日限额：{dailyLimit}个账户<br />
-              单账户最大Gas：{maxGasPerAccount} MNT<br />
+              单账户最大Gas：{maxGasPerAccount} {nativeSymbol}<br />
               自动审核：{autoApprove ? '开启' : '关闭'}
             </InfoText>
           </InfoBox>

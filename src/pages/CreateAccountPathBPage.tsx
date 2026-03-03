@@ -27,7 +27,7 @@ import { PasswordInputField } from '@/components/PasswordInput/PasswordInputFiel
 import { ErrorHandler } from '@/utils/errors';
 import { normalizePrivateKeyInput, validatePasswordPair } from '@/utils/pathFlowValidation';
 import { trimInputValue } from '@/utils/formValidation';
-import { requireChainConfig } from '@/utils/chainConfigValidation';
+import { getChainNativeSymbol, requireChainConfig } from '@/utils/chainConfigValidation';
 import { useStore } from '@/stores';
 import { createPublicClient, http } from 'viem';
 
@@ -253,6 +253,9 @@ export const CreateAccountPathBPage: React.FC = () => {
   const [acknowledgeRisk, setAcknowledgeRisk] = useState(false);
   
   const chainId = accountStore.currentChainId;
+  const nativeSymbol = getChainNativeSymbol(chainId, 'ETH');
+  const selfPayMinGas = '0.001';
+  const selfPayEstimatedGas = '0.0012';
   
   // 步骤1: 加载EOA余额
   useEffect(() => {
@@ -433,8 +436,8 @@ export const CreateAccountPathBPage: React.FC = () => {
       
       if (gasPaymentMethod === 'self') {
         // 自付Gas：直接部署
-        if (eoaBalance < parseEther('0.001')) {
-          ErrorHandler.showError('EOA账户余额不足，至少需要0.001 MNT');
+        if (eoaBalance < parseEther(selfPayMinGas)) {
+          ErrorHandler.showError(`EOA账户余额不足，至少需要${selfPayMinGas} ${nativeSymbol}`);
           return;
         }
         
@@ -697,7 +700,7 @@ export const CreateAccountPathBPage: React.FC = () => {
           
           <BalanceDisplay>
             <BalanceLabel>EOA账户余额</BalanceLabel>
-            <BalanceValue>{formatEther(eoaBalance)} MNT</BalanceValue>
+            <BalanceValue>{formatEther(eoaBalance)} {nativeSymbol}</BalanceValue>
           </BalanceDisplay>
           
           <AddressDisplay>
@@ -734,7 +737,7 @@ export const CreateAccountPathBPage: React.FC = () => {
           
           <BalanceDisplay>
             <BalanceLabel>EOA账户余额</BalanceLabel>
-            <BalanceValue>{formatEther(eoaBalance)} MNT</BalanceValue>
+            <BalanceValue>{formatEther(eoaBalance)} {nativeSymbol}</BalanceValue>
           </BalanceDisplay>
           
           <RadioGroup>
@@ -744,11 +747,11 @@ export const CreateAccountPathBPage: React.FC = () => {
             >
               <RadioTitle>自己支付Gas（推荐）</RadioTitle>
               <RadioDescription>
-                使用EOA账户支付约0.001 MNT
+                {`使用EOA账户支付约${selfPayMinGas} ${nativeSymbol}`}
                 <br />
                 立即创建，无需等待
               </RadioDescription>
-              <GasEstimate>预计费用：0.0012 MNT</GasEstimate>
+              <GasEstimate>{`预计费用：${selfPayEstimatedGas} ${nativeSymbol}`}</GasEstimate>
             </RadioOption>
             
             <RadioOption
@@ -759,7 +762,7 @@ export const CreateAccountPathBPage: React.FC = () => {
               <RadioDescription>
                 免费创建，需要等待审核
                 <br />
-                适合没有MNT的用户
+                {`适合没有${nativeSymbol}的用户`}
               </RadioDescription>
             </RadioOption>
           </RadioGroup>
