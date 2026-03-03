@@ -17,7 +17,7 @@ import { encodeFunctionData, parseAbi } from 'viem';
 import type { UserOperation } from '@/utils/kernel-types';
 import { FallbackModeDialog } from '@/components/FallbackModeDialog';
 import { rpcClientManager } from '@/utils/RpcClientManager';
-import { requireChainConfig } from '@/utils/chainConfigValidation';
+import { getChainNativeSymbol, requireChainConfig } from '@/utils/chainConfigValidation';
 import { parsePositiveAmountToUnits, validateEvmAddress } from '@/utils/pathFlowValidation';
 import { trimInputValue } from '@/utils/formValidation';
 
@@ -180,6 +180,7 @@ export const SendTransactionPage = observer(() => {
   const [fallbackAccountBalance, setFallbackAccountBalance] = useState(0n);
   const [pendingTransaction, setPendingTransaction] =
     useState<PendingFallbackTransaction | null>(null);
+  const nativeSymbol = getChainNativeSymbol(accountStore.currentChainId, 'ETH');
 
   useEffect(() => {
     // 表单变化时清理预览，避免展示过期数据
@@ -495,7 +496,7 @@ export const SendTransactionPage = observer(() => {
           onChange={(e) => setSelectedToken(e.target.value)}
           disabled={isSending}
         >
-          <option value="native">原生代币 (ETH/MNT)</option>
+          <option value="native">{`原生代币 (${nativeSymbol})`}</option>
           {tokens.map((token) => (
             <option key={token.address} value={token.address}>
               {token.symbol} - {token.name}
@@ -593,6 +594,7 @@ export const SendTransactionPage = observer(() => {
         estimatedGas={fallbackEstimatedGas}
         gasPrice={fallbackGasPrice}
         accountBalance={fallbackAccountBalance}
+        nativeSymbol={nativeSymbol}
         onConfirm={handleFallbackConfirm}
         onCancel={handleFallbackCancel}
       />

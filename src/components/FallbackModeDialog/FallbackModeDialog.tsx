@@ -113,6 +113,8 @@ export interface FallbackModeDialogProps {
   gasPrice: bigint;
   /** 账户余额（wei） */
   accountBalance: bigint;
+  /** 当前链原生代币符号 */
+  nativeSymbol?: string;
   /** 确认回调 */
   onConfirm: () => void;
   /** 取消回调 */
@@ -127,6 +129,7 @@ export const FallbackModeDialog: React.FC<FallbackModeDialogProps> = ({
   estimatedGas,
   gasPrice,
   accountBalance,
+  nativeSymbol = 'ETH',
   onConfirm,
   onCancel,
 }) => {
@@ -161,14 +164,14 @@ export const FallbackModeDialog: React.FC<FallbackModeDialogProps> = ({
 
         <GasInfo>
           <GasLabel>估算 Gas 费用</GasLabel>
-          <GasValue>{estimatedFeeEth} ETH</GasValue>
+          <GasValue>{estimatedFeeEth} {nativeSymbol}</GasValue>
         </GasInfo>
 
         {!hasEnoughBalance && (
           <InfoBox style={{ background: '#fff3cd', border: '1px solid #ffc107' }}>
             <InfoTitle style={{ color: '#856404' }}>余额不足</InfoTitle>
             <Message style={{ color: '#856404', margin: 0 }}>
-              账户余额 ({accountBalanceEth} ETH) 不足以支付估算的 Gas 费用 ({estimatedFeeEth} ETH)。
+              账户余额 ({accountBalanceEth} {nativeSymbol}) 不足以支付估算的 Gas 费用 ({estimatedFeeEth} {nativeSymbol})。
               请先充值后再试。
             </Message>
           </InfoBox>
