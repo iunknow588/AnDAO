@@ -39,6 +39,11 @@ describe('SponsorService', () => {
   });
   
   describe('getRecommendedSponsors', () => {
+    it('should return empty list in strict mode when no sponsor is registered', async () => {
+      const sponsors = await sponsorService.getRecommendedSponsors();
+      expect(sponsors).toEqual([]);
+    });
+
     it('should return list of recommended sponsors', async () => {
       await registerSponsor();
       const sponsors = await sponsorService.getRecommendedSponsors();

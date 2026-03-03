@@ -126,16 +126,8 @@ export class SponsorService {
         });
       }
 
-      const allowMockSponsors = import.meta.env.VITE_ALLOW_MOCK_SPONSORS === 'true';
-      if (!allowMockSponsors) {
-        logger.info('No sponsor data available in cache; return empty list by strict mode', LOG_CONTEXT);
-        return [];
-      }
-
-      logger.warn(
-        'Using mock sponsors because VITE_ALLOW_MOCK_SPONSORS=true (development only)',
-        LOG_CONTEXT
-      );
+      // 严格模式：无缓存即无推荐，不再伪造示例赞助商
+      logger.info('No sponsor data available in cache; return empty list by strict mode', LOG_CONTEXT);
       return [];
     } catch (error) {
       ErrorHandler.handleError(error, ErrorCode.NETWORK_ERROR);
@@ -159,21 +151,8 @@ export class SponsorService {
    */
   async selectSponsorByInviteCode(inviteCode: string): Promise<Sponsor> {
     try {
-      /**
-       * 设计预期：
-       * - 邀请码应由赞助商在渠道管理中配置，在链上 / 索引服务中做反查；
-       * - 纯前端环境下，我们无法直接访问集中式索引服务，因此采用“本地可见范围内匹配”的策略：
-       *   1）优先匹配当前运行期已注册的 sponsors；
-       *   2）在没有显式注册信息时，回退到推荐列表中的内置示例。
-       *
-       * 邀请码规则（当前实现）：
-       * - 推荐使用 `channelInviteCode` 由前端页面生成并与 Sponsor 业务约定；
-       * - 此处为了不强行绑定格式，仅做“包含 sponsorId” 的宽松匹配：
-       *   - 例如：INVITE-sponsor-xxxx-123 与 sponsor.id 包含关系即可命中。
-       *
-       * 后续如接入独立索引服务，只需在本方法最前面增加一次远程查询，
-       * 命中时直接返回远程结果，保留当前逻辑作为离线 / 降级方案。
-       */
+      // 当前实现：仅在运行期可见赞助商范围内按 sponsorId 片段进行宽松匹配
+      // 例：INVITE-sponsor-xxxx-123 包含 sponsor.id 则视为命中
       const sponsors = await this.getRecommendedSponsors();
       const sponsor = sponsors.find((s) => {
         // 宽松匹配：邀请码中包含 sponsorId 即视为匹配
