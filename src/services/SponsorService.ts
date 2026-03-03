@@ -116,18 +116,6 @@ export class SponsorService {
    */
   async getRecommendedSponsors(): Promise<Sponsor[]> {
     try {
-      /**
-       * 目前推荐列表的实现策略：
-       *
-       * 1. 优先使用当前进程中已注册的 sponsors Map（通过 registerOnChain 创建）；
-       *    这样可以在用户完成路径 C 注册后立刻在路径 A/B 中看到自己的赞助商；
-       * 2. 如果本地还没有任何注册记录，再退化为“示例赞助商列表”，
-       *    仅作为 UI 体验占位，不代表真实链上数据。
-       *
-       * 设计文档中提到的“从链上索引合约或独立索引服务获取推荐列表”
-       * 需要额外的后端/子图支持，超出了当前纯前端钱包的实现范围，
-       * 因此这里选择在类型和接口层面保持兼容，同时用可用的数据源填充行为。
-       */
       const cachedSponsors = Array.from(this.sponsors.values());
       if (cachedSponsors.length > 0) {
         return cachedSponsors.sort((a, b) => {
@@ -138,39 +126,17 @@ export class SponsorService {
         });
       }
 
-      // 退化到内置示例数据（仅在还没有任何注册记录时生效）
-      const mockSponsors: Sponsor[] = [
-        {
-          id: 'sponsor-1',
-          address: '0x1234567890123456789012345678901234567890' as Address,
-          name: '社区基金',
-          description: 'AnDao社区官方赞助基金',
-          approvalRate: 95,
-          avgWaitTime: 5,
-          totalSponsored: 1000,
-          availableBalance: BigInt('1000000000000000000'), // 1 MNT
-          storageType: StorageProviderType.IPFS,
-        },
-        {
-          id: 'sponsor-2',
-          address: '0x2345678901234567890123456789012345678901' as Address,
-          name: '快速通道',
-          description: '快速审核，平均1分钟',
-          approvalRate: 85,
-          avgWaitTime: 1,
-          totalSponsored: 500,
-          availableBalance: BigInt('500000000000000000'), // 0.5 MNT
-          storageType: StorageProviderType.IPFS,
-        },
-      ];
-      
-      // 按通过率和等待时间排序
-      return mockSponsors.sort((a, b) => {
-        if (a.approvalRate !== b.approvalRate) {
-          return b.approvalRate - a.approvalRate;
-        }
-        return a.avgWaitTime - b.avgWaitTime;
-      });
+      const allowMockSponsors = import.meta.env.VITE_ALLOW_MOCK_SPONSORS === 'true';
+      if (!allowMockSponsors) {
+        logger.info('No sponsor data available in cache; return empty list by strict mode', LOG_CONTEXT);
+        return [];
+      }
+
+      logger.warn(
+        'Using mock sponsors because VITE_ALLOW_MOCK_SPONSORS=true (development only)',
+        LOG_CONTEXT
+      );
+      return [];
     } catch (error) {
       ErrorHandler.handleError(error, ErrorCode.NETWORK_ERROR);
       return [];
@@ -1237,9 +1203,7 @@ export class SponsorService {
       return cached;
     }
 
-    // 1.5 降级：从推荐列表（含内置示例）中查找
-    // 说明：在纯前端环境下，很多场景（尤其是测试/演示）只存在“推荐赞助商列表”而未真正注册。
-    // 为了让 createApplication / reviewApplication 等流程在该模式下可用，这里允许通过推荐列表回落查找。
+    // 1.5 降级：从当前推荐列表中查找（仅限当前运行期可见数据）
     try {
       const recommended = await this.getRecommendedSponsors();
       const found = recommended.find((s) => s.id === sponsorId);

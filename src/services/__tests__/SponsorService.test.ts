@@ -11,6 +11,28 @@ import { Address } from 'viem';
 
 describe('SponsorService', () => {
   let sponsorService: SponsorService;
+
+  const registerSponsor = async () => {
+    const sponsorId = await sponsorService.registerOnChain({
+      sponsorAddress: '0x1234567890123456789012345678901234567890' as Address,
+      gasAccountAddress: '0x2345678901234567890123456789012345678901' as Address,
+      sponsorInfo: {
+        name: 'Test Sponsor',
+        description: 'Test Description',
+      },
+      rules: {
+        dailyLimit: 100,
+        maxGasPerAccount: BigInt('1000000000000000'),
+        autoApprove: false,
+      },
+    });
+
+    const sponsor = (await sponsorService.getRecommendedSponsors()).find((item) => item.id === sponsorId);
+    if (!sponsor) {
+      throw new Error('Failed to prepare sponsor fixture');
+    }
+    return sponsor;
+  };
   
   beforeEach(() => {
     sponsorService = new SponsorService();
@@ -18,6 +40,7 @@ describe('SponsorService', () => {
   
   describe('getRecommendedSponsors', () => {
     it('should return list of recommended sponsors', async () => {
+      await registerSponsor();
       const sponsors = await sponsorService.getRecommendedSponsors();
       
       expect(sponsors).toBeInstanceOf(Array);
@@ -33,6 +56,7 @@ describe('SponsorService', () => {
     });
     
     it('should sort sponsors by approval rate and wait time', async () => {
+      await registerSponsor();
       const sponsors = await sponsorService.getRecommendedSponsors();
       
       if (sponsors.length > 1) {
@@ -53,12 +77,7 @@ describe('SponsorService', () => {
   
   describe('selectSponsorByInviteCode', () => {
     it('should select sponsor by valid invite code', async () => {
-      const sponsors = await sponsorService.getRecommendedSponsors();
-      if (sponsors.length === 0) {
-        return; // 跳过测试如果没有赞助商
-      }
-      
-      const sponsor = sponsors[0];
+      const sponsor = await registerSponsor();
       const inviteCode = `SPONSOR-${sponsor.id}`;
       
       const selectedSponsor = await sponsorService.selectSponsorByInviteCode(inviteCode);
@@ -76,12 +95,7 @@ describe('SponsorService', () => {
   
   describe('createApplication', () => {
     it('should create application with valid params', async () => {
-      const sponsors = await sponsorService.getRecommendedSponsors();
-      if (sponsors.length === 0) {
-        return; // 跳过测试如果没有赞助商
-      }
-      
-      const sponsor = sponsors[0];
+      const sponsor = await registerSponsor();
       const params = {
         accountAddress: '0x1234567890123456789012345678901234567890' as Address,
         ownerAddress: '0x2345678901234567890123456789012345678901' as Address,
@@ -117,12 +131,7 @@ describe('SponsorService', () => {
   
   describe('getApplicationStatus', () => {
     it('should return status from cache', async () => {
-      const sponsors = await sponsorService.getRecommendedSponsors();
-      if (sponsors.length === 0) {
-        return;
-      }
-      
-      const sponsor = sponsors[0];
+      const sponsor = await registerSponsor();
       const params = {
         accountAddress: '0x1234567890123456789012345678901234567890' as Address,
         ownerAddress: '0x2345678901234567890123456789012345678901' as Address,
@@ -162,12 +171,7 @@ describe('SponsorService', () => {
   
   describe('reviewApplication', () => {
     it('should review application and update status', async () => {
-      const sponsors = await sponsorService.getRecommendedSponsors();
-      if (sponsors.length === 0) {
-        return;
-      }
-      
-      const sponsor = sponsors[0];
+      const sponsor = await registerSponsor();
       const params = {
         accountAddress: '0x1234567890123456789012345678901234567890' as Address,
         ownerAddress: '0x2345678901234567890123456789012345678901' as Address,
