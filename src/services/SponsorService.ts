@@ -46,6 +46,8 @@ import type { SponsorPolicyContext } from './TransactionRelayer';
 import { transactionRelayer } from './TransactionRelayer';
 
 const LOG_CONTEXT = 'SponsorService';
+type SponsorWriteMode = 'onchain' | 'cache-first' | 'cache-only';
+
 export type SponsorApplicationsDataSource =
   | 'chain-primary'
   | 'indexer'
@@ -74,6 +76,27 @@ export class SponsorService {
   
   // 轮询定时器
   private pollingTimers: Map<string, NodeJS.Timeout> = new Map();
+
+  private logWriteMode(
+    mode: SponsorWriteMode,
+    stage: 'register' | 'create' | 'review',
+    context: Record<string, unknown>
+  ): void {
+    if (mode === 'onchain') {
+      logger.info('Sponsor flow executed with on-chain write', LOG_CONTEXT, {
+        mode,
+        stage,
+        ...context,
+      });
+      return;
+    }
+
+    logger.warn('Sponsor flow executed without immediate on-chain write', LOG_CONTEXT, {
+      mode,
+      stage,
+      ...context,
+    });
+  }
   
   /**
    * 初始化服务
@@ -282,11 +305,12 @@ export class SponsorService {
       }
 
       if (!writerKey) {
-        logger.warn('Application created in cache-first mode (no signer key for create-time chain registration)', LOG_CONTEXT, {
+        this.logWriteMode('cache-first', 'create', {
           applicationId,
           chainId: params.chainId,
           strictOnChain,
           sponsorId: params.sponsorId,
+          reasonCode: 'MISSING_WRITER_KEY_FOR_CREATE',
         });
       }
       
@@ -618,11 +642,12 @@ export class SponsorService {
           chainId: params.chainId,
         });
       } else {
-        logger.warn('Sponsor registered in local cache only (missing password or chainId for on-chain registration)', LOG_CONTEXT, {
+        this.logWriteMode('cache-only', 'register', {
           sponsorId,
           address: params.sponsorAddress,
           hasPassword: Boolean(params.password),
           chainId: params.chainId,
+          reasonCode: 'MISSING_PASSWORD_OR_CHAIN_ID',
         });
       }
       
@@ -813,10 +838,11 @@ export class SponsorService {
           gasAccountPrivateKey
         );
       } else {
-        logger.warn('Application reviewed in cache-only mode (missing password for on-chain update)', LOG_CONTEXT, {
+        this.logWriteMode('cache-only', 'review', {
           applicationId,
           decision,
           sponsorId,
+          reasonCode: 'MISSING_PASSWORD_FOR_REVIEW_UPDATE',
         });
       }
 
